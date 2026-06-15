@@ -1,0 +1,27 @@
+{
+  "name": "playwright-skills",
+  "owner": {
+    "name": "FaisalNoman",
+    "url": "https://github.com/FaisalNoman"
+  },
+  "metadata": {
+    "description": "Playwright E2E skills for AI coding agents: spec generator + real-time test dashboard.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "playwright-setup",
+      "source": "./plugins/playwright-setup",
+      "description": "Scan project docs/source, interview user, generate Playwright E2E test specs + config from scratch.",
+      "version": "1.0.0",
+      "author": { "name": "FaisalNoman" }
+    },
+    {
+      "name": "e2e-dashboard",
+      "source": "./plugins/e2e-dashboard",
+      "description": "Install a real-time Playwright E2E test dashboard (live SSE progress, 14 features) into any project.",
+      "version": "1.0.0",
+      "author": { "name": "FaisalNoman" }
+    }
+  ]
+}

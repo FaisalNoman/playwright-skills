@@ -1,0 +1,1 @@
+Read `.cursor/playwright-skills/e2e-dashboard/SKILL.md` and follow its instructions exactly. Treat that file's body as your operating instructions for this task. Template files to install live in `.cursor/playwright-skills/e2e-dashboard/templates/`.

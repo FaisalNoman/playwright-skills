@@ -1,0 +1,9 @@
+{
+  "name": "playwright-setup",
+  "version": "1.0.0",
+  "description": "Scan project docs/source, interview user, generate Playwright E2E test specs + config from scratch.",
+  "author": { "name": "FaisalNoman", "url": "https://github.com/FaisalNoman" },
+  "homepage": "https://github.com/FaisalNoman/playwright-skills",
+  "license": "MIT",
+  "keywords": ["playwright", "e2e", "testing", "test-generation", "skill"]
+}

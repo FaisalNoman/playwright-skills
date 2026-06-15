@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QNext — E2E Test Runner</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --surface2: #1c2128;
+    --border:   #30363d;
+    --text:     #e6edf3;
+    --muted:    #7d8590;
+    --green:    #3fb950;
+    --red:      #f85149;
+    --yellow:   #d29922;
+    --blue:     #58a6ff;
+    --purple:   #bc8cff;
+    --orange:   #db6d28;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+  /* ── Buttons ─────────────────────────────────────── */
+  button { cursor: pointer; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; transition: opacity .15s, background .15s; }
+  button:disabled { opacity: .4; cursor: default; }
+  .btn-primary  { background: #238636; color: #fff; padding: 6px 14px; }
+  .btn-primary:hover:not(:disabled) { background: #2ea043; }
+  .btn-danger   { background: #b62324; color: #fff; padding: 6px 14px; }
+  .btn-danger:hover:not(:disabled)  { background: #d32b2c; }
+  .btn-warning  { background: #9a6700; color: #fff; padding: 6px 14px; }
+  .btn-warning:hover:not(:disabled) { background: #b07800; }
+  .btn-ghost    { background: transparent; color: var(--muted); padding: 4px 8px; border: 1px solid var(--border); }
+  .btn-ghost:hover:not(:disabled)   { background: var(--surface2); color: var(--text); }
+  .btn-ghost.active { color: var(--text); background: var(--surface2); border-color: var(--blue); }
+  .btn-icon     { background: transparent; color: var(--muted); padding: 2px 6px; font-size: 11px; border: 1px solid transparent; border-radius: 4px; }
+  .btn-icon:hover:not(:disabled) { background: #21262d; color: var(--blue); border-color: var(--border); }
+  .hidden { display: none !important; }
+
+  /* ── Compact mode ────────────────────────────────── */
+  body.compact .test-row            { padding: 3px 14px 3px 22px; }
+  body.compact .test-title          { font-size: 12px; }
+  body.compact .test-meta           { display: none; }
+  body.compact .inline-steps        { display: none; }
+  body.compact .test-error-snippet  { max-height: 40px; }
+  body.compact .attachment-bar      { display: none; }
+  body.compact .suite-header        { padding: 5px 14px; }
+  body.compact .describe-header     { padding: 2px 14px 2px 28px; }
+
+  /* ── Running disabled ────────────────────────────── */
+  body.test-running [data-run-file], body.test-running [data-run-test],
+  body.test-running [data-run-line], body.test-running #btn-run-all,
+  body.test-running #btn-run-failed, body.test-running .qs-card {
+    opacity: .35; pointer-events: none; cursor: default;
+  }
+  body.test-running #btn-stop { pointer-events: auto; opacity: 1; }
+
+  /* ── Mode toggle ─────────────────────────────────── */
+  .mode-toggle { display: flex; gap: 2px; background: #21262d; border-radius: 6px; padding: 2px; }
+  .mode-btn { background: transparent; color: var(--muted); padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; transition: all .15s; }
+  .mode-btn.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px #0004; }
+  .mode-btn:hover:not(.active) { color: var(--text); }
+
+  /* ── Speed control ───────────────────────────────── */
+  .speed-control { display: flex; align-items: center; gap: 6px; background: #1f3a5f33; border: 1px solid #1f3a5f; border-radius: 6px; padding: 4px 10px; font-size: 11px; }
+  .speed-label { color: var(--blue); font-weight: 600; white-space: nowrap; }
+  .speed-opts { display: flex; gap: 2px; }
+  .speed-btn { background: transparent; color: var(--muted); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid transparent; cursor: pointer; transition: all .15s; }
+  .speed-btn.active { background: var(--surface); color: var(--blue); border-color: #1f3a5f; }
+  .speed-btn:hover:not(.active) { color: var(--text); }
+
+  /* ── Header ──────────────────────────────────────── */
+  header { padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 10px; flex-shrink: 0; flex-wrap: wrap; }
+  header h1 { font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; }
+  header h1 .accent { color: var(--blue); }
+  .header-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .conn-status { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .conn-dot.ok  { background: var(--green); }
+  .conn-dot.err { background: var(--red); }
+  .elapsed { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 36px; }
+  .status-badge { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-idle    { background: #21262d; color: var(--muted); }
+  .badge-running { background: #1f3a5f; color: var(--blue); animation: pulse 1.5s infinite; }
+  .badge-pass    { background: #1a3a2a; color: var(--green); }
+  .badge-fail    { background: #3a1a1a; color: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+
+  /* ── Hint bar ────────────────────────────────────── */
+  #hint-bar { background: #161b22; border-bottom: 1px solid var(--border); padding: 7px 16px; display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--muted); flex-shrink: 0; }
+  #hint-bar .hints { display: flex; gap: 18px; flex-wrap: wrap; }
+  #hint-bar .hint-item { display: flex; align-items: center; gap: 5px; }
+  #hint-bar kbd { background: #21262d; border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; font-size: 10px; color: var(--text); font-family: monospace; }
+  #hint-bar .dismiss { margin-left: auto; }
+
+  /* ── Filter / stats bar ──────────────────────────── */
+  .filter-bar { padding: 7px 16px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-shrink: 0; flex-wrap: wrap; font-size: 12px; }
+  .stat { display: flex; align-items: center; gap: 5px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .dot-blue  { background: var(--blue); }
+  .dot-green { background: var(--green); }
+  .dot-red   { background: var(--red); }
+  .dot-yellow{ background: var(--yellow); }
+  .dot-purple{ background: var(--purple); }
+  .stat-val  { font-weight: 700; font-size: 14px; }
+  .filter-sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+  .filter-right { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #test-search { background: #21262d; border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 12px; padding: 4px 8px; outline: none; width: 180px; }
+  #test-search:focus { border-color: var(--blue); }
+  #sort-select { background: #21262d; border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 11px; padding: 4px 6px; outline: none; cursor: pointer; }
+  #sort-select:focus { border-color: var(--blue); }
+  .seed-toggle { display: flex; align-items: center; gap: 5px; color: var(--muted); user-select: none; }
+  .seed-toggle input { cursor: pointer; accent-color: var(--blue); }
+  .seed-toggle label { cursor: pointer; }
+
+  /* ── ETA ─────────────────────────────────────────── */
+  .eta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+  /* ── Progress bar ────────────────────────────────── */
+  .progress-wrap { padding: 5px 16px 7px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .progress-track { height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; display: flex; }
+  .progress-pass    { background: var(--green);  transition: width .3s; }
+  .progress-fail    { background: var(--red);    transition: width .3s; }
+  .progress-skip    { background: var(--yellow); transition: width .3s; }
+  .progress-running { background: var(--blue);   transition: width .3s; animation: shimmer 1.2s infinite; }
+  @keyframes shimmer { 0%,100%{opacity:.7} 50%{opacity:1} }
+  .progress-label { margin-top: 4px; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+
+  /* ── Main layout ─────────────────────────────────── */
+  .main { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+  /* ── Sidebar ─────────────────────────────────────── */
+  .sidebar { width: 240px; min-width: 160px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .sidebar-top { padding: 8px 10px 6px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .sidebar-heading { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px; }
+  #file-search { width: 100%; background: #21262d; border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 12px; padding: 4px 7px; outline: none; }
+  #file-search:focus { border-color: var(--blue); }
+  .sidebar-list { flex: 1; overflow-y: auto; padding: 3px 0; }
+  .suite-item { padding: 5px 8px; display: flex; align-items: center; gap: 6px; cursor: pointer; transition: background .1s; border-left: 2px solid transparent; min-height: 30px; }
+  .suite-item:hover { background: #21262d; }
+  .suite-item.active { background: #21262d; border-left-color: var(--blue); }
+  .suite-item.has-fail { border-left-color: var(--red); }
+  .suite-icon { font-size: 11px; width: 14px; text-align: center; flex-shrink: 0; }
+  .suite-name { flex: 1; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .suite-count { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+  .suite-run-btn { opacity: 0; transition: opacity .1s; background: transparent; border: 1px solid var(--border); border-radius: 3px; color: var(--green); font-size: 9px; padding: 1px 4px; cursor: pointer; flex-shrink: 0; }
+  .suite-item:hover .suite-run-btn { opacity: 1; }
+  .suite-run-btn:hover { background: #1a3a2a; }
+
+  /* ── Content ─────────────────────────────────────── */
+  .content { flex: 1; overflow-y: auto; min-width: 0; }
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100%; padding: 40px 24px; gap: 0; }
+  .empty-emoji { font-size: 48px; margin-bottom: 16px; }
+  .empty-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+  .empty-sub { color: var(--muted); font-size: 13px; margin-bottom: 28px; text-align: center; max-width: 380px; }
+  .qs-cards { display: flex; gap: 16px; margin-bottom: 28px; flex-wrap: wrap; justify-content: center; }
+  .qs-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; cursor: pointer; transition: border-color .15s, background .15s; min-width: 150px; text-align: center; max-width: 190px; }
+  .qs-card:hover { border-color: var(--blue); background: var(--surface2); }
+  .qs-icon { font-size: 26px; margin-bottom: 7px; }
+  .qs-title { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .qs-desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
+  .empty-tip { font-size: 12px; color: var(--muted); max-width: 400px; text-align: center; line-height: 1.5; }
+  .kbdl { color: var(--blue); font-weight: 600; }
+
+  /* ── Failure groups ──────────────────────────────── */
+  .failure-groups { border-bottom: 2px solid #5a2020; background: #1a0e0e; }
+  .fg-header { padding: 8px 16px; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--red); cursor: pointer; user-select: none; }
+  .fg-header:hover { background: #21111188; }
+  .fg-toggle { margin-left: auto; font-size: 11px; color: var(--muted); }
+  .fg-body { padding: 0 16px 10px; }
+  .failure-group { margin-top: 8px; padding: 8px 10px; background: #2d1a1a; border: 1px solid #5a2020; border-radius: 5px; }
+  .fg-error { font-size: 11px; color: #ff8080; font-family: 'Consolas', 'Fira Code', monospace; margin-bottom: 5px; white-space: pre-wrap; word-break: break-all; }
+  .fg-tests { display: flex; flex-wrap: wrap; gap: 4px; }
+  .fg-test { font-size: 11px; background: #3a1a1a; border: 1px solid #5a2020; border-radius: 3px; padding: 2px 6px; cursor: pointer; color: #ffaaaa; }
+  .fg-test:hover { background: #5a2020; color: #fff; }
+
+  /* ── Suite blocks ────────────────────────────────── */
+  .suite-block { border-bottom: 1px solid var(--border); }
+  .suite-header { padding: 7px 14px; background: var(--surface2); font-size: 11px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; position: sticky; top: 0; z-index: 1; }
+  .suite-path { flex: 1; }
+  .suite-mini-bar { display: flex; gap: 8px; font-size: 11px; align-items: center; }
+  .suite-mini-bar .run-file-btn { background: transparent; border: 1px solid var(--border); border-radius: 3px; color: var(--green); font-size: 10px; padding: 1px 6px; cursor: pointer; }
+  .suite-mini-bar .run-file-btn:hover { background: #1a3a2a; }
+
+  /* ── Describe header ─────────────────────────────── */
+  .describe-header { padding: 4px 14px 4px 30px; font-size: 11px; font-weight: 600; color: var(--muted); background: #13181f; border-top: 1px solid #21262d; letter-spacing: .3px; display: flex; align-items: center; gap: 6px; }
+  .describe-header::before { content: '▸'; font-size: 9px; }
+
+  /* ── Test rows ───────────────────────────────────── */
+  .test-row { padding: 6px 14px 6px 26px; border-top: 1px solid #1c2128; transition: background .1s; cursor: pointer; }
+  .test-row:hover { background: #21262d22; }
+  .test-row.selected { background: #1f3a5f22; border-left: 2px solid var(--blue); padding-left: 24px; }
+  .test-row-main { display: flex; align-items: flex-start; gap: 8px; }
+  .test-icon { width: 16px; flex-shrink: 0; text-align: center; font-size: 13px; margin-top: 1px; }
+  .test-title-wrap { flex: 1; min-width: 0; }
+  .test-title { font-size: 13px; line-height: 1.4; word-break: break-word; }
+  .test-meta { display: flex; align-items: center; gap: 8px; margin-top: 2px; flex-wrap: wrap; }
+  .test-duration { font-size: 11px; color: var(--muted); }
+  .test-run-btn { opacity: 0; transition: opacity .1s; background: transparent; border: 1px solid var(--border); border-radius: 3px; color: var(--green); font-size: 10px; padding: 1px 5px; cursor: pointer; white-space: nowrap; }
+  .test-row:hover .test-run-btn { opacity: 1; }
+  .test-run-btn:hover { background: #1a3a2a; }
+
+  /* ── Flakiness badge ─────────────────────────────── */
+  .flaky-badge { display: inline-flex; align-items: center; gap: 3px; background: #3a2f00; color: var(--yellow); border: 1px solid #5a4f00; border-radius: 3px; font-size: 9px; font-weight: 700; padding: 1px 5px; text-transform: uppercase; letter-spacing: .3px; flex-shrink: 0; }
+
+  /* ── Retry badge ─────────────────────────────────── */
+  .retry-badge { display: inline-flex; align-items: center; background: #2a1f3a; color: var(--purple); border: 1px solid #3a2f5a; border-radius: 3px; font-size: 9px; font-weight: 700; padding: 1px 5px; flex-shrink: 0; }
+
+  /* ── Error snippet ───────────────────────────────── */
+  .test-error-snippet { position: relative; margin-top: 5px; padding: 6px 30px 6px 8px; background: #2d1a1a; border: 1px solid #5a2020; border-radius: 4px; font-size: 11px; color: #ff8080; font-family: 'Consolas', 'Fira Code', monospace; white-space: pre-wrap; word-break: break-all; max-height: 80px; overflow-y: auto; }
+  .copy-err-btn { position: absolute; top: 4px; right: 4px; background: #3a1a1a; border: 1px solid #5a2020; border-radius: 3px; color: #ff8080; font-size: 10px; padding: 1px 5px; cursor: pointer; opacity: .6; transition: opacity .15s; z-index: 1; }
+  .copy-err-btn:hover { opacity: 1; }
+
+  /* ── Attachments ─────────────────────────────────── */
+  .attachment-bar { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
+  .thumb-img { width: 80px; height: 50px; object-fit: cover; border-radius: 3px; cursor: zoom-in; border: 1px solid var(--border); transition: border-color .15s; flex-shrink: 0; }
+  .thumb-img:hover { border-color: var(--blue); }
+  .trace-btn { background: #2a1f3a; color: var(--purple); border: 1px solid #3a2f5a; border-radius: 4px; font-size: 10px; font-weight: 600; padding: 3px 8px; cursor: pointer; }
+  .trace-btn:hover { background: #3a2f5a; }
+
+  /* ── Inline step log ─────────────────────────────── */
+  .inline-steps { margin-top: 5px; padding-left: 4px; border-left: 2px solid #1f3a5f; max-height: 90px; overflow: hidden; }
+  .step-line { font-size: 11px; color: var(--muted); padding: 1px 0; display: flex; align-items: flex-start; gap: 5px; line-height: 1.4; }
+  .step-line .si { width: 12px; flex-shrink: 0; text-align: center; font-size: 10px; margin-top: 1px; }
+  .step-line.running { color: var(--blue); }
+  .step-line.failed  { color: var(--red); }
+  .step-line.done    { color: #484f58; }
+  .step-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; padding: 1px 4px; border-radius: 3px; flex-shrink: 0; margin-top: 1px; }
+  .cat-pw_api { background: #1f3a5f; color: var(--blue); }
+  .cat-expect { background: #1a3a2a; color: var(--green); }
+  .cat-test   { background: #2a1f3a; color: var(--purple); }
+
+  /* ── Status colours ──────────────────────────────── */
+  .s-passed  { color: var(--green); }
+  .s-failed, .s-timedOut { color: var(--red); }
+  .s-skipped { color: var(--yellow); }
+  .s-running { color: var(--blue); animation: pulse 1.2s infinite; }
+  .s-pending { color: var(--muted); }
+
+  /* ── Detail panel ────────────────────────────────── */
+  .detail-panel { width: 320px; flex-shrink: 0; border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; transition: width .2s; }
+  .detail-panel.closed { width: 0; border-left: none; }
+  .detail-header { padding: 9px 12px; border-bottom: 1px solid var(--border); background: var(--surface2); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .detail-header h3 { flex: 1; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .detail-body { flex: 1; overflow-y: auto; padding: 12px; }
+  .detail-test-title { font-size: 14px; font-weight: 600; line-height: 1.4; margin-bottom: 8px; word-break: break-word; }
+  .detail-status-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .detail-file { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+  .detail-dur  { font-size: 12px; color: var(--muted); }
+  .detail-section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 6px; margin-top: 12px; }
+  .step-list { display: flex; flex-direction: column; gap: 2px; }
+  .step-item { display: flex; align-items: flex-start; gap: 6px; padding: 3px 6px; border-radius: 4px; font-size: 11px; line-height: 1.4; }
+  .step-item.running { background: #1f3a5f22; }
+  .step-item.failed  { background: #3a1a1a22; }
+  .step-si { width: 14px; flex-shrink: 0; text-align: center; margin-top: 1px; }
+  .step-text { flex: 1; word-break: break-all; color: var(--text); }
+  .step-item.done .step-text { color: #484f58; }
+  .detail-error { margin-top: 6px; padding: 8px 10px; background: #2d1a1a; border: 1px solid #5a2020; border-radius: 5px; font-size: 11px; color: #ff8080; font-family: 'Consolas', 'Fira Code', monospace; white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow-y: auto; }
+  .no-steps { color: var(--muted); font-size: 12px; font-style: italic; }
+  .detail-screenshot { margin-top: 6px; max-width: 100%; border-radius: 4px; border: 1px solid var(--border); cursor: zoom-in; }
+
+  /* ── Lightbox ────────────────────────────────────── */
+  .lightbox { position: fixed; inset: 0; background: #000c; z-index: 1000; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+  .lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 6px; border: 2px solid var(--border); object-fit: contain; }
+
+  /* ── Shortcuts modal ─────────────────────────────── */
+  .modal-overlay { position: fixed; inset: 0; background: #000a; z-index: 900; display: flex; align-items: center; justify-content: center; }
+  .modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; min-width: 300px; max-width: 420px; overflow: hidden; }
+  .modal-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .modal-header h3 { flex: 1; font-size: 14px; font-weight: 600; }
+  .modal-body { padding: 16px; }
+  .shortcut-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 13px; }
+  .shortcut-row:last-child { border-bottom: none; }
+  .shortcut-row kbd { background: #21262d; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-size: 11px; color: var(--text); font-family: monospace; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────────────────────────────────────── -->
+<header>
+  <h1>QNext <span class="accent">E2E</span></h1>
+  <div class="mode-toggle" title="Interactive mode opens a real browser so you can watch tests run">
+    <button class="mode-btn active" id="btn-bg"          onclick="setMode('background')">🔇 Background</button>
+    <button class="mode-btn"        id="btn-interactive" onclick="setMode('interactive')">👁 Interactive</button>
+  </div>
+  <div class="speed-control hidden" id="speed-control" title="Delay between each Playwright action">
+    <span class="speed-label">⏱ Speed:</span>
+    <div class="speed-opts">
+      <button class="speed-btn active" data-ms="0"    onclick="setSlowMo(0)">Full</button>
+      <button class="speed-btn"        data-ms="500"  onclick="setSlowMo(500)">Slow</button>
+      <button class="speed-btn"        data-ms="1500" onclick="setSlowMo(1500)">Slower</button>
+      <button class="speed-btn"        data-ms="3000" onclick="setSlowMo(3000)">Step</button>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="btn-primary"              id="btn-run-all"    onclick="runAll()"    title="Run every test">▶ Run All</button>
+    <button class="btn-warning hidden"       id="btn-run-failed" onclick="runFailed()" title="Re-run every failed test">↺ Re-run Failed</button>
+    <button class="btn-danger  hidden"       id="btn-stop"       onclick="stopRun()"   title="Kill current run">⏹ Stop</button>
+    <button class="btn-ghost"                id="btn-compact"    onclick="toggleCompact()" title="Toggle compact mode [K]">⬜ Compact</button>
+    <button class="btn-ghost"                id="btn-notif"      onclick="requestNotif()" title="Enable browser notifications">🔔</button>
+    <button class="btn-ghost"                id="btn-shortcuts"  onclick="openShortcuts()" title="Keyboard shortcuts [?]">?</button>
+  </div>
+  <div class="header-right">
+    <span id="status-badge" class="status-badge badge-idle">Idle</span>
+    <span id="elapsed" class="elapsed"></span>
+    <span class="conn-status">
+      <span id="conn-dot" class="conn-dot"></span>
+      <span id="conn-label">connecting…</span>
+    </span>
+  </div>
+</header>
+
+<!-- ── Hint bar ───────────────────────────────────────────────────────────────── -->
+<div id="hint-bar">
+  <div class="hints">
+    <span class="hint-item"><kbd>▶ Run All</kbd> all tests</span>
+    <span class="hint-item"><kbd>↺ Re-run Failed</kbd> retry failures only</span>
+    <span class="hint-item">Click <kbd>▶</kbd> next to any file or test to run just that one</span>
+    <span class="hint-item">Press <kbd>?</kbd> for keyboard shortcuts</span>
+  </div>
+  <button class="btn-ghost dismiss" id="hint-close" onclick="dismissHint()">✕</button>
+</div>
+
+<!-- ── Filter / Stats bar ──────────────────────────────────────────────────────── -->
+<div class="filter-bar">
+  <div class="stat"><span class="dot dot-blue"></span>  <span class="stat-val" id="s-total">0</span>  total</div>
+  <div class="stat"><span class="dot dot-green"></span> <span class="stat-val" id="s-passed">0</span> passed</div>
+  <div class="stat"><span class="dot dot-red"></span>   <span class="stat-val" id="s-failed">0</span> failed</div>
+  <div class="stat"><span class="dot dot-yellow"></span><span class="stat-val" id="s-skipped">0</span> skipped</div>
+  <div class="stat"><span class="dot dot-purple"></span><span class="stat-val" id="s-running">0</span> running</div>
+  <div class="filter-sep"></div>
+  <button class="btn-ghost" id="btn-filter-failed" onclick="toggleFilterFailed()" title="Show only failed tests [F]">⚠ Failures only</button>
+  <div class="filter-right">
+    <span class="eta" id="eta-label"></span>
+    <input type="search" id="test-search" placeholder="🔍 Search tests… [/]" oninput="onSearchInput(this.value)" title="Filter by test title [/]">
+    <select id="sort-select" onchange="onSortChange(this.value)" title="Sort tests">
+      <option value="default">Order: Default</option>
+      <option value="failed-first">Failed first</option>
+      <option value="slowest">Slowest first</option>
+    </select>
+    <div class="seed-toggle" title="Skip DB seed on quick re-runs">
+      <input type="checkbox" id="skip-seed" checked>
+      <label for="skip-seed">Skip DB seed</label>
+    </div>
+  </div>
+</div>
+
+<!-- ── Progress bar ───────────────────────────────────────────────────────────── -->
+<div class="progress-wrap">
+  <div class="progress-track">
+    <div id="pg-pass"    class="progress-pass"    style="width:0%"></div>
+    <div id="pg-fail"    class="progress-fail"    style="width:0%"></div>
+    <div id="pg-skip"    class="progress-skip"    style="width:0%"></div>
+    <div id="pg-running" class="progress-running" style="width:0%"></div>
+  </div>
+  <div class="progress-label">
+    <span id="pg-label">Waiting for test run…</span>
+    <span id="pg-pct"></span>
+  </div>
+</div>
+
+<!-- ── Main ──────────────────────────────────────────────────────────────────── -->
+<div class="main">
+  <div class="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-heading" id="sidebar-heading">Test Files</div>
+      <input type="search" id="file-search" placeholder="🔍 Filter files…" oninput="filterSidebar(this.value)">
+    </div>
+    <div class="sidebar-list" id="sidebar-list"></div>
+  </div>
+
+  <div class="content" id="content">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-emoji">🧪</div>
+      <div class="empty-title">Ready to run tests</div>
+      <div class="empty-sub">Choose how to start, or click <span class="kbdl">▶</span> next to any file in the sidebar.</div>
+      <div class="qs-cards">
+        <div class="qs-card" onclick="setMode('background'); runAll()">
+          <div class="qs-icon">🔇</div>
+          <div class="qs-title">Background</div>
+          <div class="qs-desc">Silent headless run — results stream here as tests complete</div>
+        </div>
+        <div class="qs-card" onclick="setMode('interactive'); runAll()">
+          <div class="qs-icon">👁</div>
+          <div class="qs-title">Interactive</div>
+          <div class="qs-desc">Browser opens so you can watch every action live</div>
+        </div>
+      </div>
+      <div class="empty-tip">After a run, click <span class="kbdl">↺ Re-run Failed</span> to retry only failed tests.</div>
+    </div>
+  </div>
+
+  <div class="detail-panel closed" id="detail-panel">
+    <div class="detail-header">
+      <h3>Test Details</h3>
+      <button class="btn-ghost" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="detail-body" id="detail-body">
+      <div class="no-steps">Select a test to see its step-by-step details.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Lightbox ───────────────────────────────────────────────────────────────── -->
+<div id="lightbox" class="lightbox hidden" onclick="closeLightbox()">
+  <img id="lightbox-img" src="" alt="Screenshot">
+</div>
+
+<!-- ── Shortcuts modal ───────────────────────────────────────────────────────── -->
+<div id="shortcuts-modal" class="modal-overlay hidden" onclick="closeShortcuts()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>⌨ Keyboard Shortcuts</h3>
+      <button class="btn-ghost" onclick="closeShortcuts()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="shortcut-row"><span>Focus test search</span><kbd>/</kbd></div>
+      <div class="shortcut-row"><span>Re-run all failed tests</span><kbd>R</kbd></div>
+      <div class="shortcut-row"><span>Toggle failures-only filter</span><kbd>F</kbd></div>
+      <div class="shortcut-row"><span>Toggle compact mode</span><kbd>K</kbd></div>
+      <div class="shortcut-row"><span>Close panel / modal</span><kbd>Esc</kbd></div>
+      <div class="shortcut-row"><span>Show this dialog</span><kbd>?</kbd></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SERVER = 'http://localhost:7373';
+
+// ── App state ────────────────────────────────────────────────────────────────
+let state          = null;
+let availableFiles = [];
+let selectedFile   = null;
+let selectedTestId = null;
+let runMode        = 'background';
+let slowMo         = 0;
+let elapsedTimer   = null;
+let pendingTitles  = {};
+let runHistory     = [];
+let filterFailed   = false;
+let compactMode    = false;
+let sortBy         = 'default';
+let testSearch     = '';
+let fgCollapsed    = false;
+
+// Restore persisted UI prefs
+if (localStorage.getItem('e2e-hint-dismissed') === '1') document.getElementById('hint-bar').classList.add('hidden');
+if (localStorage.getItem('e2e-compact') === '1') { compactMode = true; document.body.classList.add('compact'); document.getElementById('btn-compact').classList.add('active'); }
+
+// ── Global click delegation ───────────────────────────────────────────────────
+document.addEventListener('click', e => {
+  const rfBtn = e.target.closest('[data-run-file]');
+  if (rfBtn) { e.stopPropagation(); runFile(rfBtn.dataset.runFile); return; }
+
+  const rlBtn = e.target.closest('[data-run-line]');
+  if (rlBtn) { e.stopPropagation(); doRun({ file: rlBtn.dataset.runLine }); return; }
+
+  const rtBtn = e.target.closest('[data-run-test]');
+  if (rtBtn) { e.stopPropagation(); runTestByTitle(rtBtn.dataset.file, rtBtn.dataset.runTest); return; }
+
+  // Copy error button
+  const copyBtn = e.target.closest('[data-copy-err]');
+  if (copyBtn) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(copyBtn.dataset.copyErr || '').catch(() => {});
+    const orig = copyBtn.textContent;
+    copyBtn.textContent = '✓';
+    setTimeout(() => { copyBtn.textContent = orig; }, 1500);
+    return;
+  }
+
+  // Trace viewer button
+  const traceBtn = e.target.closest('[data-trace-path]');
+  if (traceBtn) {
+    e.stopPropagation();
+    fetch(`${SERVER}/open-trace?p=${encodeURIComponent(traceBtn.dataset.tracePath)}`, { method: 'POST' }).catch(() => {});
+    return;
+  }
+
+  // Screenshot thumbnail
+  const thumbImg = e.target.closest('.thumb-img');
+  if (thumbImg) { e.stopPropagation(); openLightbox(thumbImg.src); return; }
+
+  // Failure group test chip
+  const fgTest = e.target.closest('.fg-test[data-test-id]');
+  if (fgTest) { selectTest(fgTest.dataset.testId); return; }
+
+  // Sidebar: all-files row
+  if (e.target.closest('.suite-item-all')) { selectFile(null); return; }
+
+  // Sidebar: individual file row
+  const sItem = e.target.closest('.suite-item[data-file]');
+  if (sItem) { selectFile(sItem.dataset.file); return; }
+
+  // Pending test row
+  const pRow = e.target.closest('.test-row[data-pending-title]');
+  if (pRow) { selectPendingTest(pRow.dataset.pendingFile, pRow.dataset.pendingTitle); return; }
+
+  // Completed/running test row
+  const tRow = e.target.closest('.test-row[data-id]');
+  if (tRow) { selectTest(tRow.dataset.id); return; }
+});
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input, textarea, select')) return;
+  switch (e.key) {
+    case '/':
+      e.preventDefault();
+      document.getElementById('test-search').focus();
+      break;
+    case 'r': case 'R':
+      if (state && state.failed > 0 && state.status !== 'running') runFailed();
+      break;
+    case 'f': case 'F':
+      toggleFilterFailed();
+      break;
+    case 'k': case 'K':
+      toggleCompact();
+      break;
+    case 'Escape':
+      if (!document.getElementById('shortcuts-modal').classList.contains('hidden')) { closeShortcuts(); break; }
+      if (!document.getElementById('lightbox').classList.contains('hidden'))        { closeLightbox();  break; }
+      closeDetail();
+      break;
+    case '?':
+      if (!e.shiftKey) return;
+      openShortcuts();
+      break;
+  }
+});
+
+// ── Mode & speed ──────────────────────────────────────────────────────────────
+function setMode(m) {
+  runMode = m;
+  document.getElementById('btn-bg').classList.toggle('active', m === 'background');
+  document.getElementById('btn-interactive').classList.toggle('active', m === 'interactive');
+  document.getElementById('speed-control').classList.toggle('hidden', m !== 'interactive');
+}
+function setSlowMo(ms) {
+  slowMo = ms;
+  document.querySelectorAll('#speed-control .speed-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.ms) === ms));
+}
+
+// ── UI toggles ────────────────────────────────────────────────────────────────
+function dismissHint() { localStorage.setItem('e2e-hint-dismissed', '1'); document.getElementById('hint-bar').classList.add('hidden'); }
+
+function toggleFilterFailed() {
+  filterFailed = !filterFailed;
+  document.getElementById('btn-filter-failed').classList.toggle('active', filterFailed);
+  renderContent();
+}
+
+function toggleCompact() {
+  compactMode = !compactMode;
+  document.body.classList.toggle('compact', compactMode);
+  document.getElementById('btn-compact').classList.toggle('active', compactMode);
+  localStorage.setItem('e2e-compact', compactMode ? '1' : '0');
+}
+
+function onSearchInput(v) { testSearch = v; renderContent(); }
+function onSortChange(v)  { sortBy = v; renderContent(); }
+
+function openShortcuts()  { document.getElementById('shortcuts-modal').classList.remove('hidden'); }
+function closeShortcuts() { document.getElementById('shortcuts-modal').classList.add('hidden'); }
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+async function requestNotif() {
+  if (!('Notification' in window)) { alert('Notifications not supported in this browser.'); return; }
+  const p = await Notification.requestPermission();
+  document.getElementById('btn-notif').textContent = p === 'granted' ? '🔔✓' : '🔔✗';
+}
+function sendNotif(title, body) {
+  if (Notification.permission === 'granted') {
+    new Notification(title, { body, silent: false });
+  }
+}
+
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+function openLightbox(src) {
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox').classList.remove('hidden');
+}
+function closeLightbox() { document.getElementById('lightbox').classList.add('hidden'); }
+
+// ── Failure groups ────────────────────────────────────────────────────────────
+function toggleFailureGroups() {
+  fgCollapsed = !fgCollapsed;
+  const body = document.getElementById('fg-body');
+  const tog  = document.getElementById('fg-toggle');
+  if (body)  body.classList.toggle('hidden', fgCollapsed);
+  if (tog)   tog.textContent = fgCollapsed ? '▸' : '▾';
+}
+
+function failureGroupsHTML() {
+  if (!state || state.failed === 0) return '';
+  const failures = Object.values(state.tests).filter(t => t.status === 'failed' || t.status === 'timedOut');
+  const groups = new Map();
+  for (const t of failures) {
+    const key = (t.error?.message || 'Unknown error').substring(0, 100).trim();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+  const label = `${failures.length} failure${failures.length !== 1 ? 's' : ''} · ${sorted.length} error pattern${sorted.length !== 1 ? 's' : ''}`;
+
+  let inner = '';
+  for (const [key, tests] of sorted) {
+    const chips = tests.map(t => `<span class="fg-test" data-test-id="${h(t.id)}">${h(t.title)}</span>`).join('');
+    inner += `<div class="failure-group"><div class="fg-error">${h(key)}${key.length >= 100 ? '…' : ''}</div><div class="fg-tests">${chips}</div></div>`;
+  }
+  return `<div class="failure-groups"><div class="fg-header" onclick="toggleFailureGroups()"><span>⚠ ${h(label)}</span><span class="fg-toggle" id="fg-toggle">${fgCollapsed ? '▸' : '▾'}</span></div><div class="fg-body${fgCollapsed ? ' hidden' : ''}" id="fg-body">${inner}</div></div>`;
+}
+
+// ── Flakiness ─────────────────────────────────────────────────────────────────
+function isFlaky(testId) {
+  if (runHistory.length < 2) return false;
+  let p = false, f = false;
+  for (const run of runHistory.slice(0, 10)) {
+    const s = run.testResults?.[testId];
+    if (s === 'passed') p = true;
+    if (s === 'failed' || s === 'timedOut') f = true;
+    if (p && f) return true;
+  }
+  return false;
+}
+
+// ── ETA ───────────────────────────────────────────────────────────────────────
+function computeETA() {
+  if (!state || state.status !== 'running' || !state.startTime || state.total === 0) return '';
+  const done = state.passed + state.failed + state.skipped;
+  if (done < 3) return '';
+  const elapsed  = (Date.now() - state.startTime) / 1000;
+  const rate     = done / elapsed;
+  const remaining = (state.total - done) / rate;
+  if (!isFinite(remaining) || remaining <= 0) return '';
+  return `~${fmtTime(Math.ceil(remaining))} left`;
+}
+
+// ── Run controls ──────────────────────────────────────────────────────────────
+async function runAll()              { await doRun({}); }
+async function runFile(file)         { await doRun({ file }); }
+async function runTestByTitle(file, title) { await doRun({ file, grep: escRe(title) }); }
+async function stopRun()             { try { await fetch(`${SERVER}/stop`, { method: 'POST' }); } catch {} }
+
+async function runFailed() {
+  if (!state) return;
+  const failed = Object.values(state.tests)
+    .filter(t => t.status === 'failed' || t.status === 'timedOut')
+    .map(t => escRe(t.title));
+  if (!failed.length) return;
+  await doRun({ grep: failed.join('|') });
+}
+
+async function doRun(params) {
+  const skipSeed = document.getElementById('skip-seed').checked;
+  try {
+    await fetch(`${SERVER}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...params, mode: runMode, slowMo, skipSeed }),
+    });
+  } catch {
+    alert('Cannot reach progress server.\n\nStart it:\n  node tests/reporters/progress-server.js');
+  }
+}
+
+function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function h(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── SSE connection ────────────────────────────────────────────────────────────
+function connect() {
+  const es = new EventSource(`${SERVER}/events`);
+  es.onopen  = () => setConn('ok',  'live');
+  es.onerror = () => setConn('err', 'reconnecting…');
+  es.addEventListener('state', e => {
+    const prev = state;
+    state = JSON.parse(e.data);
+
+    // Transition: not-running → running
+    if (state.status === 'running' && (!prev || prev.status !== 'running')) {
+      pendingTitles  = {};
+      selectedTestId = null;
+      document.getElementById('detail-panel').classList.add('closed');
+    }
+    // Discard pending titles for files that now have live data
+    if (state.suites) Object.keys(state.suites).forEach(f => { delete pendingTitles[f]; });
+
+    // Transition: running → done
+    if (state.status === 'done' && prev?.status === 'running') {
+      const passAll = state.failed === 0 && state.total > 0;
+      sendNotif('QNext E2E Tests', passAll
+        ? `✓ All ${state.passed} tests passed`
+        : `✗ ${state.failed} failed · ${state.passed} passed`);
+      if (state.failed > 0) setTimeout(scrollToFirstFailure, 400);
+    }
+
+    render();
+  });
+}
+
+function setConn(cls, txt) {
+  document.getElementById('conn-dot').className    = `conn-dot ${cls}`;
+  document.getElementById('conn-label').textContent = txt;
+}
+
+async function loadFiles() {
+  try {
+    const r = await fetch(`${SERVER}/files`);
+    availableFiles = (await r.json()).files || [];
+    render();
+  } catch {}
+}
+
+async function loadHistory() {
+  try {
+    const r = await fetch(`${SERVER}/history`);
+    runHistory = (await r.json()).history || [];
+  } catch {}
+}
+
+// ── Auto-scroll ───────────────────────────────────────────────────────────────
+function scrollToFirstFailure() {
+  const rows = document.querySelectorAll('.test-row[data-id]');
+  for (const row of rows) {
+    const t = state?.tests[row.dataset.id];
+    if (t && (t.status === 'failed' || t.status === 'timedOut')) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+  }
+}
+
+// ── Timers ────────────────────────────────────────────────────────────────────
+function startElapsed(startTime) {
+  clearInterval(elapsedTimer);
+  elapsedTimer = setInterval(() => {
+    document.getElementById('elapsed').textContent  = fmtTime(Math.floor((Date.now() - startTime) / 1000));
+    document.getElementById('eta-label').textContent = computeETA();
+  }, 500);
+}
+function fmtTime(s) { const m = Math.floor(s / 60); return m > 0 ? `${m}m ${s % 60}s` : `${s}s`; }
+function fmtDur(ms) { return ms == null ? '' : ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's'; }
+
+// ── Master render ─────────────────────────────────────────────────────────────
+function render() {
+  renderHeader();
+  renderStats();
+  renderProgress();
+  renderSidebar();
+  renderContent();
+  if (selectedTestId && !document.getElementById('detail-panel').classList.contains('closed')) renderDetail();
+}
+
+// ── Header ────────────────────────────────────────────────────────────────────
+function renderHeader() {
+  const s = state;
+  document.body.classList.toggle('test-running', !!(s && s.status === 'running'));
+  const badge   = document.getElementById('status-badge');
+  const btnRun  = document.getElementById('btn-run-all');
+  const btnFail = document.getElementById('btn-run-failed');
+  const btnStop = document.getElementById('btn-stop');
+  const elapsed = document.getElementById('elapsed');
+
+  if (!s || s.status === 'idle') {
+    badge.className = 'status-badge badge-idle'; badge.textContent = 'Idle';
+    clearInterval(elapsedTimer); elapsedTimer = null; elapsed.textContent = '';
+    document.getElementById('eta-label').textContent = '';
+    btnStop.classList.add('hidden'); btnRun.disabled = false;
+    btnFail.classList.toggle('hidden', !(s && s.failed > 0));
+  } else if (s.status === 'running') {
+    badge.className = 'status-badge badge-running'; badge.textContent = 'Running';
+    if (s.startTime && !elapsedTimer) startElapsed(s.startTime);
+    btnStop.classList.remove('hidden'); btnRun.disabled = true;
+    btnFail.classList.add('hidden');
+  } else {
+    clearInterval(elapsedTimer); elapsedTimer = null;
+    document.getElementById('eta-label').textContent = '';
+    const pass = s.failed === 0 && s.total > 0;
+    badge.className = `status-badge ${pass ? 'badge-pass' : 'badge-fail'}`;
+    badge.textContent = pass ? `✓ ${s.passed} Passed` : `✗ ${s.failed} Failed`;
+    if (s.startTime && s.endTime) elapsed.textContent = fmtTime(Math.floor((s.endTime - s.startTime) / 1000));
+    btnStop.classList.add('hidden'); btnRun.disabled = false;
+    btnFail.classList.toggle('hidden', s.failed === 0);
+  }
+}
+
+// ── Stats & progress ──────────────────────────────────────────────────────────
+function renderStats() {
+  const s = state || {};
+  ['total','passed','failed','skipped','running'].forEach(k =>
+    document.getElementById('s-' + k).textContent = s[k] ?? 0);
+}
+
+function renderProgress() {
+  const s    = state || { total: 0, passed: 0, failed: 0, skipped: 0, running: 0 };
+  const t    = Math.max(s.total, 1);
+  const done = s.passed + s.failed + s.skipped;
+  document.getElementById('pg-pass').style.width    = (s.passed  / t * 100).toFixed(1) + '%';
+  document.getElementById('pg-fail').style.width    = (s.failed  / t * 100).toFixed(1) + '%';
+  document.getElementById('pg-skip').style.width    = (s.skipped / t * 100).toFixed(1) + '%';
+  document.getElementById('pg-running').style.width = (s.running / t * 100).toFixed(1) + '%';
+  document.getElementById('pg-label').textContent   = s.total > 0 ? `${done} / ${s.total} completed` : 'Waiting for test run…';
+  document.getElementById('pg-pct').textContent     = s.total > 0 ? Math.round(done / s.total * 100) + '%' : '';
+}
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+let sidebarFilter = '';
+function filterSidebar(v) { sidebarFilter = v.toLowerCase(); renderSidebar(); }
+
+function mergedFiles() {
+  const fromState = state
+    ? Object.keys(state.suites).filter(f => f.endsWith('.spec.ts') || f.endsWith('.spec.js'))
+    : [];
+  const all = [...new Set([...availableFiles, ...fromState])].sort();
+  return sidebarFilter ? all.filter(f => f.toLowerCase().includes(sidebarFilter)) : all;
+}
+
+async function selectFile(file) {
+  selectedFile = file;
+  if (file && !(state && state.suites[file]) && !pendingTitles[file]) {
+    try {
+      const r = await fetch(`${SERVER}/filetests?file=${encodeURIComponent(file)}`);
+      pendingTitles[file] = (await r.json()).titles || [];
+    } catch { pendingTitles[file] = []; }
+  }
+  render();
+}
+
+function renderSidebar() {
+  const files = mergedFiles();
+  document.getElementById('sidebar-heading').textContent = `Test Files (${files.length})`;
+  const s = state;
+  const totalTests = files.reduce((n, f) => n + (s && s.suites[f] ? s.suites[f].tests.length : 0), 0);
+
+  let html = `<div class="suite-item suite-item-all${selectedFile === null ? ' active' : ''}">
+    <span class="suite-icon" style="color:var(--muted)">≡</span>
+    <span class="suite-name" style="color:var(--muted);font-style:italic">All Files</span>
+    <span class="suite-count">${totalTests || ''}</span>
+  </div>`;
+
+  for (const file of files) {
+    const suite  = s && s.suites[file];
+    const tests  = suite ? suite.tests : [];
+    const st     = suiteStatus(tests);
+    const passC  = tests.filter(id => s?.tests[id]?.status === 'passed').length;
+    const short  = file.split('/').pop();
+    const active = selectedFile === file;
+    const fail   = st === 'failed';
+    html += `<div class="suite-item${active ? ' active' : ''}${fail ? ' has-fail' : ''}" data-file="${h(file)}">
+      <span class="suite-icon">${suiteIcon(st)}</span>
+      <span class="suite-name" title="${h(file)}">${h(short)}</span>
+      <span class="suite-count">${tests.length ? `${passC}/${tests.length}` : ''}</span>
+      <button class="suite-run-btn" data-run-file="${h(file)}" title="Run ${h(short)}">▶</button>
+    </div>`;
+  }
+  document.getElementById('sidebar-list').innerHTML = html;
+}
+
+// ── Content ───────────────────────────────────────────────────────────────────
+function selectTest(id) {
+  selectedTestId = id;
+  document.getElementById('detail-panel').classList.remove('closed');
+  renderDetail();
+  document.querySelectorAll('.test-row').forEach(el => el.classList.toggle('selected', el.dataset.id === id));
+}
+function closeDetail() {
+  selectedTestId = null;
+  document.getElementById('detail-panel').classList.add('closed');
+}
+function selectPendingTest(file, title) {
+  selectedTestId = null;
+  document.getElementById('detail-panel').classList.remove('closed');
+  const short = file.split('/').pop();
+  document.getElementById('detail-body').innerHTML = `
+    <div class="detail-test-title">${h(title)}</div>
+    <div class="detail-status-row"><span><span class="s-pending">○</span> <span style="font-size:13px;font-weight:600">Not run yet</span></span></div>
+    <div class="detail-file">${h(file)}</div>
+    <div style="margin-top:10px"><button class="btn-primary" data-run-file="${h(file)}" style="font-size:11px;padding:4px 10px">▶ Run ${h(short)}</button></div>
+    <div class="detail-section-title" style="margin-top:14px">Steps</div>
+    <div class="no-steps">Steps are recorded during test execution.</div>`;
+}
+
+function renderContent() {
+  const s           = state;
+  const allSuiteFiles = s ? Object.keys(s.suites).sort() : [];
+  let   filesToShow = selectedFile ? [selectedFile] : allSuiteFiles;
+
+  // Filter to files containing failures when failures-only mode is on
+  if (filterFailed && s) {
+    filesToShow = filesToShow.filter(file =>
+      s.suites[file]?.tests.some(id => ['failed','timedOut'].includes(s.tests[id]?.status))
+    );
+  }
+
+  const content = document.getElementById('content');
+
+  if (filesToShow.length === 0 && !testSearch) {
+    content.innerHTML = `<div class="empty-state">
+      <div class="empty-emoji">🧪</div>
+      <div class="empty-title">${filterFailed && s?.total > 0 ? 'No failures' : 'Ready to run tests'}</div>
+      <div class="empty-sub">${filterFailed && s?.total > 0 ? 'All tests passed.' : 'Click ▶ Run All or select a file.'}</div>
+      <div class="qs-cards">
+        <div class="qs-card" onclick="setMode('background'); runAll()"><div class="qs-icon">🔇</div><div class="qs-title">Background</div><div class="qs-desc">Silent headless run</div></div>
+        <div class="qs-card" onclick="setMode('interactive'); runAll()"><div class="qs-icon">👁</div><div class="qs-title">Interactive</div><div class="qs-desc">Watch every action live</div></div>
+      </div></div>`;
+    return;
+  }
+
+  let html = failureGroupsHTML();
+
+  for (const file of filesToShow) {
+    const suite = s && s.suites[file];
+    if (suite)               { html += suiteBlockHTML(file, suite); continue; }
+    const titles = pendingTitles[file];
+    if (titles?.length)      { html += pendingBlockHTML(file, titles); continue; }
+    html += noRunYetHTML(file);
+  }
+
+  content.innerHTML = html;
+}
+
+function noRunYetHTML(file) {
+  const short = file.split('/').pop();
+  return `<div style="padding:36px 22px;text-align:center;color:var(--muted)">
+    <div style="font-size:28px;margin-bottom:10px">○</div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:5px">${h(short)}</div>
+    <div style="font-size:12px;margin-bottom:14px">No tests run yet.</div>
+    <button class="btn-primary" data-run-file="${h(file)}" style="font-size:11px">▶ Run ${h(short)}</button>
+  </div>`;
+}
+
+function pendingBlockHTML(file, titles) {
+  const short = file.split('/').pop();
+  const rows = titles.map(title => `<div class="test-row" data-pending-title="${h(title)}" data-pending-file="${h(file)}">
+    <div class="test-row-main">
+      <span class="test-icon"><span class="s-pending">○</span></span>
+      <div class="test-title-wrap"><div class="test-title" style="color:var(--muted)">${h(title)}</div></div>
+    </div>
+  </div>`).join('');
+  return `<div class="suite-block">
+    <div class="suite-header">
+      <span class="suite-path">${h(file)}</span>
+      <span class="suite-mini-bar">
+        <span class="s-pending">○ ${titles.length} pending</span>
+        <button class="run-file-btn" data-run-file="${h(file)}">▶ Run file</button>
+      </span>
+    </div>${rows}</div>`;
+}
+
+function suiteBlockHTML(file, suite) {
+  const s = state;
+  let tests = suite.tests.map(id => s.tests[id]).filter(Boolean);
+
+  // Sort
+  if (sortBy === 'slowest')      tests = [...tests].sort((a, b) => (b.duration || 0) - (a.duration || 0));
+  else if (sortBy === 'failed-first') tests = [...tests].sort((a, b) => {
+    const w = t => (t.status === 'failed' || t.status === 'timedOut') ? 0 : 1;
+    return w(a) - w(b);
+  });
+
+  // Filter
+  if (filterFailed) tests = tests.filter(t => t.status === 'failed' || t.status === 'timedOut');
+  if (testSearch)   tests = tests.filter(t => t.title.toLowerCase().includes(testSearch.toLowerCase()));
+  if (tests.length === 0) return '';
+
+  const passC = tests.filter(t => t.status === 'passed').length;
+  const failC = tests.filter(t => ['failed','timedOut'].includes(t.status)).length;
+  const runC  = tests.filter(t => t.status === 'running').length;
+  const short = file.split('/').pop();
+
+  // Group by describe block
+  const groups = [];
+  let curDesc = Symbol(); // unique sentinel
+  for (const t of tests) {
+    const desc = (t.describes || []).join(' › ');
+    if (desc !== curDesc) { curDesc = desc; groups.push({ label: desc, tests: [] }); }
+    groups[groups.length - 1].tests.push(t);
+  }
+
+  let rows = '';
+  for (const grp of groups) {
+    if (grp.label) rows += `<div class="describe-header">${h(grp.label)}</div>`;
+    for (const t of grp.tests) rows += testRowHTML(t, file, s);
+  }
+
+  return `<div class="suite-block">
+    <div class="suite-header">
+      <span class="suite-path">${h(file)}</span>
+      <span class="suite-mini-bar">
+        <span class="s-passed">✓${passC}</span>
+        ${failC ? `<span class="s-failed">✗${failC}</span>` : ''}
+        ${runC  ? `<span class="s-running">⟳${runC}</span>` : ''}
+        <span class="s-pending">${suite.tests.length}</span>
+        <button class="run-file-btn" data-run-file="${h(file)}">▶ Run file</button>
+      </span>
+    </div>
+    ${rows}
+  </div>`;
+}
+
+function testRowHTML(t, file, s) {
+  const steps     = (s.steps && s.steps[t.id]) || [];
+  const dur       = fmtDur(t.duration);
+  const selected  = selectedTestId === t.id;
+  const rerun     = t.status === 'failed' || t.status === 'timedOut';
+  const runAttr   = t.line
+    ? `data-run-line="${h(file)}:${t.line}"`
+    : `data-run-test="${h(t.title)}" data-file="${h(file)}"`;
+  const flaky     = isFlaky(t.id);
+  const retried   = (t.retry || 0) > 0;
+
+  // Inline steps (running tests only)
+  let stepsHtml = '';
+  if (t.status === 'running' && steps.length > 0) {
+    stepsHtml = '<div class="inline-steps">' + steps.slice(-5).map(st => {
+      const si = st.status === 'done'   ? '<span class="s-passed" style="font-size:9px">✓</span>'
+               : st.status === 'failed' ? '<span class="s-failed" style="font-size:9px">✗</span>'
+               : '<span class="s-running" style="font-size:9px">⟳</span>';
+      const cc = 'cat-' + (st.category || 'pw:api').replace(':', '_');
+      return `<div class="step-line ${st.status}"><span class="si">${si}</span><span class="step-label ${cc}">${catLabel(st.category)}</span><span>${h(st.title)}</span></div>`;
+    }).join('') + '</div>';
+  }
+
+  // Error snippet with copy button
+  let errHtml = '';
+  if (t.error && t.status !== 'running') {
+    const msg = t.error.message || '';
+    errHtml = `<div class="test-error-snippet"><button class="copy-err-btn" data-copy-err="${h(msg)}" title="Copy error">⎘</button>${h(msg)}</div>`;
+  }
+
+  // Attachments: screenshots + traces
+  const screenshots = (t.attachments || []).filter(a => a.name === 'screenshot' && a.path);
+  const traces      = (t.attachments || []).filter(a => a.name === 'trace'      && a.path);
+  let attachHtml = '';
+  if ((screenshots.length || traces.length) && t.status !== 'running') {
+    attachHtml = '<div class="attachment-bar">';
+    for (const sc of screenshots) {
+      const url = `${SERVER}/serve?p=${encodeURIComponent(sc.path)}`;
+      attachHtml += `<img class="thumb-img" src="${url}" alt="screenshot" title="Click to zoom">`;
+    }
+    for (const tr of traces) {
+      attachHtml += `<button class="trace-btn" data-trace-path="${h(tr.path)}" title="Open in Playwright Trace Viewer">🎬 Trace</button>`;
+    }
+    attachHtml += '</div>';
+  }
+
+  return `<div class="test-row${selected ? ' selected' : ''}" data-id="${h(t.id)}">
+    <div class="test-row-main">
+      <span class="test-icon">${testIcon(t.status)}</span>
+      <div class="test-title-wrap">
+        <div class="test-title">${h(t.title)}</div>
+        <div class="test-meta">
+          ${dur ? `<span class="test-duration">${dur}</span>` : ''}
+          ${flaky  ? '<span class="flaky-badge">⚡ flaky</span>'          : ''}
+          ${retried ? `<span class="retry-badge">retry ${t.retry}</span>` : ''}
+          <button class="test-run-btn" ${runAttr}>${rerun ? '↺ Re-run' : '▶ Run'}</button>
+        </div>
+      </div>
+    </div>
+    ${stepsHtml}${errHtml}${attachHtml}
+  </div>`;
+}
+
+// ── Detail panel ──────────────────────────────────────────────────────────────
+function renderDetail() {
+  const s    = state;
+  const body = document.getElementById('detail-body');
+  if (!selectedTestId || !s) { body.innerHTML = '<div class="no-steps">Select a test to see step details.</div>'; return; }
+  const t = s.tests[selectedTestId];
+  if (!t) { body.innerHTML = '<div class="no-steps">Test data not found.</div>'; return; }
+
+  const steps = (s.steps && s.steps[selectedTestId]) || [];
+  const dur   = fmtDur(t.duration);
+  const flaky = isFlaky(t.id);
+
+  const stepItems = steps.length
+    ? steps.map(st => {
+        const si = st.status === 'done'   ? '<span class="s-passed">✓</span>'
+                 : st.status === 'failed' ? '<span class="s-failed">✗</span>'
+                 : '<span class="s-running">⟳</span>';
+        const cc = 'cat-' + (st.category || 'pw:api').replace(':', '_');
+        return `<div class="step-item ${st.status}"><span class="step-si">${si}</span><span class="step-label ${cc}">${catLabel(st.category)}</span><span class="step-text">${h(st.title)}</span></div>`;
+      }).join('')
+    : '<div class="no-steps">No steps recorded.</div>';
+
+  const errHtml = t.error
+    ? `<div class="detail-section-title">Error</div><div class="detail-error">${h(t.error.message || '')}</div>` : '';
+
+  // Screenshots in detail panel
+  const screenshots = (t.attachments || []).filter(a => a.name === 'screenshot' && a.path);
+  const traces      = (t.attachments || []).filter(a => a.name === 'trace'      && a.path);
+  let attachDetailHtml = '';
+  if (screenshots.length || traces.length) {
+    attachDetailHtml = `<div class="detail-section-title">Attachments</div>`;
+    for (const sc of screenshots) {
+      const url = `${SERVER}/serve?p=${encodeURIComponent(sc.path)}`;
+      attachDetailHtml += `<img class="detail-screenshot thumb-img" src="${url}" alt="screenshot" style="width:100%;height:auto;max-height:200px;margin-bottom:6px" title="Click to zoom">`;
+    }
+    for (const tr of traces) {
+      attachDetailHtml += `<button class="trace-btn" data-trace-path="${h(tr.path)}" style="margin-bottom:6px">🎬 Open Trace Viewer</button><br>`;
+    }
+  }
+
+  const file = t.file || '';
+  body.innerHTML = `
+    <div class="detail-test-title">${h(t.title)}</div>
+    <div class="detail-status-row">
+      <span>${testIcon(t.status)} <span style="font-size:13px;font-weight:600">${statusLabel(t.status)}</span></span>
+      ${dur ? `<span class="detail-dur">⏱ ${dur}</span>` : ''}
+      ${flaky ? '<span class="flaky-badge">⚡ flaky</span>' : ''}
+    </div>
+    <div class="detail-file">${h(file)}</div>
+    ${t.describes?.length ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">▸ ${h(t.describes.join(' › '))}</div>` : ''}
+    <div style="margin-top:10px">
+      ${t.line
+        ? `<button class="btn-primary" data-run-line="${h(file)}:${t.line}" style="font-size:11px;padding:4px 10px">↺ Run this test</button>`
+        : `<button class="btn-primary" data-run-test="${h(t.title)}" data-file="${h(file)}" style="font-size:11px;padding:4px 10px">↺ Run this test</button>`}
+    </div>
+    ${attachDetailHtml}
+    <div class="detail-section-title" style="margin-top:14px">Steps (${steps.length})</div>
+    <div class="step-list">${stepItems}</div>
+    ${errHtml}`;
+}
+
+// ── Pure helpers ──────────────────────────────────────────────────────────────
+function suiteStatus(tests) {
+  const all = tests.map(id => state?.tests[id]).filter(Boolean);
+  if (all.some(t => t.status === 'failed' || t.status === 'timedOut')) return 'failed';
+  if (all.some(t => t.status === 'running'))  return 'running';
+  if (all.length && all.every(t => t.status === 'passed')) return 'passed';
+  return 'pending';
+}
+function suiteIcon(st) {
+  return st === 'passed' ? '<span class="s-passed">✓</span>'
+       : st === 'failed' ? '<span class="s-failed">✗</span>'
+       : st === 'running'? '<span class="s-running">⟳</span>'
+       : '<span class="s-pending">○</span>';
+}
+function testIcon(status) {
+  return status === 'passed'                          ? '<span class="s-passed">✓</span>'
+       : status === 'failed' || status === 'timedOut' ? '<span class="s-failed">✗</span>'
+       : status === 'skipped'                         ? '<span class="s-skipped">—</span>'
+       : status === 'running'                         ? '<span class="s-running">⟳</span>'
+       : '<span class="s-pending">○</span>';
+}
+function statusLabel(st) {
+  return { passed:'Passed', failed:'Failed', timedOut:'Timed out', skipped:'Skipped', running:'Running…' }[st] || 'Pending';
+}
+function catLabel(cat) {
+  return { 'pw:api':'action', 'expect':'expect', 'test':'step' }[cat] || (cat || 'action');
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+connect();
+loadFiles();
+loadHistory();
+</script>
+</body>
+</html>

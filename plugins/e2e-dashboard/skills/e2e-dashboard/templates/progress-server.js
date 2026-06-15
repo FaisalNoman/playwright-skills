@@ -1,0 +1,415 @@
+// Real-time test progress SSE server — port 7373
+// %%ADAPT%% See e2e-dashboard SKILL.md Phase 3 for adaptation instructions
+const http = require('http');
+const path = require('path');
+const fs = require('fs');
+const { spawn, spawnSync } = require('child_process');
+
+const PORT         = 7373;
+const ROOT         = path.join(__dirname, '..', '..'); // %%ADAPT_ROOT%%
+const HTML_PATH    = path.join(__dirname, '..', 'test-progress-dashboard.html'); // %%ADAPT_HTML_PATH%%
+const E2E_DIR      = path.join(ROOT, 'tests', 'e2e'); // %%ADAPT_E2E_DIR%%
+const SPEC_EXT     = '.spec.ts'; // %%ADAPT_SPEC_EXT%%
+const HISTORY_FILE = path.join(ROOT, 'test-results', '.run-history.json');
+
+// Detect primary screen size at startup so interactive runs can be positioned on the right half
+let SCREEN_W = 1920, SCREEN_H = 1080;
+try {
+  if (process.platform === 'win32') {
+    const r = spawnSync('wmic', ['desktopmonitor', 'get', 'screenwidth,screenheight', '/format:value'],
+      { encoding: 'utf8', timeout: 3000 });
+    const out = r.stdout || '';
+    const w = (out.match(/ScreenWidth=(\d+)/)  || [])[1];
+    const h = (out.match(/ScreenHeight=(\d+)/) || [])[1];
+    if (w && parseInt(w) > 0) SCREEN_W = parseInt(w);
+    if (h && parseInt(h) > 0) SCREEN_H = parseInt(h);
+  }
+} catch (_) {}
+console.log(`[progress-server] Screen: ${SCREEN_W}x${SCREEN_H}`);
+
+// Run history — last 20 full runs, used for flakiness detection
+let runHistory = [];
+try {
+  fs.mkdirSync(path.join(ROOT, 'test-results'), { recursive: true });
+  runHistory = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+} catch (_) {}
+
+let state = {
+  status: 'idle',
+  startTime: null,
+  endTime: null,
+  total: 0, passed: 0, failed: 0, skipped: 0, running: 0,
+  tests: {},   // id -> { title, file, describes, line, status, duration, error, attachments, retry }
+  suites: {},  // file -> { file, tests: [] }
+  steps: {},   // testId -> [{ title, category, status }]
+  errors: [],
+  runMode: 'background',
+  currentFile: null,
+  currentGrep: null,
+};
+
+let currentProcess        = null;
+let isTargetedRun         = false;  // set before spawning, consumed in applyEvent('begin')
+let currentRunIsTargeted  = false;  // persists through the run for 'end' handler
+const sseClients          = new Set();
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function scanTestFiles() {
+  try {
+    return fs.readdirSync(E2E_DIR)
+      .filter(f => f.endsWith(SPEC_EXT))
+      .sort()
+      .map(f => `tests/e2e/${f}`); // %%ADAPT_FILE_PREFIX%%
+  } catch { return []; }
+}
+
+function setCors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+function broadcast(event, data) {
+  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of sseClients) {
+    try { res.write(msg); } catch (_) { sseClients.delete(res); }
+  }
+}
+function broadcastState() { broadcast('state', state); }
+
+function readBody(req) {
+  return new Promise(resolve => {
+    let body = '';
+    req.on('data', d => (body += d));
+    req.on('end', () => resolve(body));
+  });
+}
+
+function killCurrent() {
+  if (!currentProcess) return;
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(currentProcess.pid), '/f', '/t'], { shell: true, stdio: 'ignore' });
+    } else {
+      currentProcess.kill('SIGTERM');
+    }
+  } catch (_) {}
+  currentProcess = null;
+}
+
+function resetRunState() {
+  state.status = 'idle';
+  state.startTime = null; state.endTime = null;
+  state.total = 0; state.passed = 0; state.failed = 0; state.skipped = 0; state.running = 0;
+  state.tests = {}; state.suites = {}; state.steps = {}; state.errors = [];
+}
+
+function saveHistory() {
+  const entry = {
+    id:          Date.now(),
+    startTime:   state.startTime,
+    endTime:     state.endTime,
+    total:       state.total,
+    passed:      state.passed,
+    failed:      state.failed,
+    skipped:     state.skipped,
+    testResults: Object.fromEntries(Object.values(state.tests).map(t => [t.id, t.status])),
+  };
+  runHistory.unshift(entry);
+  if (runHistory.length > 20) runHistory = runHistory.slice(0, 20);
+  try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(runHistory)); } catch (_) {}
+}
+
+// Validate that a path is inside test-results/ before serving it
+function safeArtifactPath(p) {
+  const artifactsRoot = path.resolve(ROOT, 'test-results');
+  const candidate = path.isAbsolute(p) ? path.resolve(p) : path.resolve(ROOT, p);
+  return candidate.startsWith(artifactsRoot) ? candidate : null;
+}
+
+// ── server ────────────────────────────────────────────────────────────────────
+
+const server = http.createServer(async (req, res) => {
+  setCors(res);
+  if (req.method === 'OPTIONS') { res.writeHead(204).end(); return; }
+
+  // ── POST /event (from realtime-reporter) ──────────────────────────────
+  if (req.method === 'POST' && req.url === '/event') {
+    const body = await readBody(req);
+    try { applyEvent(JSON.parse(body)); broadcastState(); } catch (_) {}
+    res.writeHead(204).end();
+    return;
+  }
+
+  // ── GET /state ────────────────────────────────────────────────────────
+  if (req.method === 'GET' && req.url === '/state') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(state));
+    return;
+  }
+
+  // ── GET /files ────────────────────────────────────────────────────────
+  if (req.method === 'GET' && req.url === '/files') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ files: scanTestFiles() }));
+    return;
+  }
+
+  // ── GET /filetests?file=tests/e2e/foo.spec.ts ─────────────────────────
+  if (req.method === 'GET' && req.url.startsWith('/filetests')) {
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+    const fileParam = new URLSearchParams(qs).get('file') || '';
+    if (!fileParam.endsWith('.spec.ts') && !fileParam.endsWith('.spec.js')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ titles: [] }));
+      return;
+    }
+    const titles = [];
+    try {
+      const content = fs.readFileSync(path.join(ROOT, fileParam), 'utf8');
+      const stripped = content
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '');
+      for (const m of stripped.matchAll(/\btest(?:\.(?:skip|only|fixme))?\s*\(\s*(['"`])((?:\\[\s\S]|(?!\1)[\s\S])*?)\1/g)) {
+        const title = m[2].replace(/\\(['"`\\])/g, '$1').trim();
+        if (title) titles.push(title);
+      }
+    } catch (_) {}
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ titles }));
+    return;
+  }
+
+  // ── GET /events (SSE) ────────────────────────────────────────────────
+  if (req.method === 'GET' && req.url === '/events') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    res.write(`event: state\ndata: ${JSON.stringify(state)}\n\n`);
+    sseClients.add(res);
+    req.on('close', () => sseClients.delete(res));
+    return;
+  }
+
+  // ── GET /history ──────────────────────────────────────────────────────
+  if (req.method === 'GET' && req.url === '/history') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ history: runHistory }));
+    return;
+  }
+
+  // ── GET /serve?p=<path> (serve artifact files within test-results/) ───
+  if (req.method === 'GET' && req.url.startsWith('/serve')) {
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+    const rawPath = decodeURIComponent(new URLSearchParams(qs).get('p') || '');
+    const safe = safeArtifactPath(rawPath);
+    if (!safe) { res.writeHead(403).end('Forbidden'); return; }
+    try {
+      const data = fs.readFileSync(safe);
+      const ext = path.extname(safe).toLowerCase();
+      const ct = ext === '.png' ? 'image/png' : ext === '.jpg' ? 'image/jpeg' : ext === '.zip' ? 'application/zip' : 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': ct });
+      res.end(data);
+    } catch (_) { res.writeHead(404).end('Not found'); }
+    return;
+  }
+
+  // ── POST /open-trace?p=<trace-zip-path> ──────────────────────────────
+  if (req.method === 'POST' && req.url.startsWith('/open-trace')) {
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+    const rawPath = decodeURIComponent(new URLSearchParams(qs).get('p') || '');
+    const safe = safeArtifactPath(rawPath);
+    if (!safe) { res.writeHead(403).end('Forbidden'); return; }
+    try {
+      spawn('npx', ['playwright', 'show-trace', safe], {
+        cwd: ROOT, shell: true, stdio: 'ignore', detached: true,
+      }).unref();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (e) { res.writeHead(500).end(String(e.message)); }
+    return;
+  }
+
+  // ── POST /run ─────────────────────────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/run') {
+    const body = await readBody(req);
+    let params = {};
+    try { params = JSON.parse(body); } catch {}
+
+    const { file, grep, mode = 'background', slowMo = 0, skipSeed = false } = params;
+    isTargetedRun = !!(file || grep);
+
+    killCurrent();
+
+    if (isTargetedRun) {
+      // Preserve test/suite data so other rows stay on screen
+      state.status = 'idle';
+      state.startTime = null; state.endTime = null;
+      state.running = 0; state.errors = [];
+    } else {
+      resetRunState();
+    }
+    broadcastState();
+
+    state.runMode = mode;
+    state.currentFile = file || null;
+    state.currentGrep = grep || null;
+
+    const args = ['playwright', 'test'];
+    if (file) args.push(file);
+    if (grep) args.push('--grep', grep);
+    if (mode === 'interactive') args.push('--headed');
+
+    const env = { ...process.env };
+    if (skipSeed) env.SKIP_GLOBAL_SETUP = 'true'; // Remove if no globalSetup
+    if (mode === 'interactive' && slowMo > 0) env.PLAYWRIGHT_SLOW_MO = String(slowMo);
+    if (mode === 'interactive') {
+      const half = Math.floor(SCREEN_W / 3);
+      env.PW_WIN_X = String(half);
+      env.PW_WIN_Y = '0';
+      env.PW_WIN_W = String(SCREEN_W - half);
+      env.PW_WIN_H = String(SCREEN_H);
+    }
+
+    console.log(`[progress-server] Spawning: npx ${args.join(' ')}`);
+    currentProcess = spawn('npx', args, { cwd: ROOT, shell: true, env, stdio: 'ignore' });
+    currentProcess.on('exit', code => {
+      console.log(`[progress-server] Playwright exited (${code})`);
+      currentProcess = null;
+      if (state.status === 'running') {
+        state.status = 'done'; state.endTime = Date.now(); state.running = 0;
+        broadcastState();
+      }
+    });
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // ── POST /stop ────────────────────────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/stop') {
+    killCurrent();
+    if (state.status === 'running') {
+      state.status = 'done'; state.endTime = Date.now(); state.running = 0;
+      broadcastState();
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // ── GET / or /dashboard ───────────────────────────────────────────────
+  if (req.method === 'GET' && (req.url === '/' || req.url === '/dashboard')) {
+    try {
+      const html = fs.readFileSync(HTML_PATH, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(html);
+    } catch (_) { res.writeHead(404).end('Dashboard HTML not found'); }
+    return;
+  }
+
+  res.writeHead(404).end();
+});
+
+// ── event application ─────────────────────────────────────────────────────────
+
+function applyEvent(event) {
+  switch (event.type) {
+    case 'begin': {
+      state.status = 'running';
+      state.startTime = event.startTime;
+      state.endTime = null;
+      state.errors = [];
+      if (isTargetedRun) {
+        currentRunIsTargeted = true;
+        // Recompute counters from actual test data — baseline must be accurate
+        // before the targeted run's testBegin/testEnd incremental updates start
+        const known = Object.values(state.tests);
+        state.passed  = known.filter(t => t.status === 'passed').length;
+        state.failed  = known.filter(t => ['failed', 'timedOut'].includes(t.status)).length;
+        state.skipped = known.filter(t => t.status === 'skipped').length;
+        state.running = 0;
+        state.total   = known.length;
+        isTargetedRun = false;
+      } else {
+        currentRunIsTargeted = false;
+        state.total   = event.total;
+        state.passed  = 0; state.failed = 0; state.skipped = 0; state.running = 0;
+        state.tests   = {}; state.suites = {}; state.steps = {};
+      }
+      break;
+    }
+    case 'testBegin': {
+      const { id, title, file, line, describes = [] } = event;
+      if (state.tests[id]) {
+        const prev = state.tests[id].status;
+        if (prev === 'passed')                              state.passed  = Math.max(0, state.passed  - 1);
+        else if (prev === 'failed' || prev === 'timedOut') state.failed  = Math.max(0, state.failed  - 1);
+        else if (prev === 'skipped')                       state.skipped = Math.max(0, state.skipped - 1);
+        state.tests[id].status   = 'running';
+        state.tests[id].describes = describes;
+        state.steps[id] = [];
+      } else {
+        state.tests[id] = { id, title, file, line: line || null, describes, status: 'running', duration: null, error: null, attachments: [], retry: 0 };
+        state.steps[id] = [];
+        if (!state.suites[file]) state.suites[file] = { file, tests: [] };
+        if (!state.suites[file].tests.includes(id)) state.suites[file].tests.push(id);
+        state.total = Math.max(state.total, Object.keys(state.tests).length);
+      }
+      state.running++;
+      break;
+    }
+    case 'testEnd': {
+      const { id, status, duration, error, attachments = [], retry = 0 } = event;
+      if (state.tests[id]) {
+        const prev = state.tests[id].status;
+        state.tests[id].status      = status;
+        state.tests[id].duration    = duration;
+        state.tests[id].error       = error || null;
+        state.tests[id].attachments = attachments;
+        state.tests[id].retry       = retry;
+        if (prev === 'running') state.running = Math.max(0, state.running - 1);
+      }
+      if (status === 'passed')                              state.passed++;
+      else if (status === 'failed' || status === 'timedOut') state.failed++;
+      else if (status === 'skipped')                        state.skipped++;
+      break;
+    }
+    case 'stepBegin': {
+      const { id, title, category } = event;
+      if (!state.steps[id]) state.steps[id] = [];
+      if (state.steps[id].length >= 60) state.steps[id].shift();
+      state.steps[id].push({ title, category, status: 'running' });
+      break;
+    }
+    case 'stepEnd': {
+      const { id, title, error } = event;
+      if (state.steps[id]) {
+        const step = [...state.steps[id]].reverse().find(s => s.title === title && s.status === 'running');
+        if (step) step.status = error ? 'failed' : 'done';
+      }
+      break;
+    }
+    case 'end': {
+      state.status  = 'done';
+      state.endTime = event.endTime;
+      state.running = 0;
+      if (!currentRunIsTargeted) saveHistory();
+      break;
+    }
+  }
+}
+
+server.listen(PORT, () => {
+  console.log(`[progress-server] Listening on http://localhost:${PORT}`);
+  console.log(`[progress-server] Dashboard: http://localhost:${PORT}/dashboard`);
+});
+
+process.on('SIGTERM', () => { killCurrent(); server.close(); });
+process.on('SIGINT',  () => { killCurrent(); server.close(); });
+
+module.exports = { server };

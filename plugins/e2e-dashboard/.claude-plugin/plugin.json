@@ -1,0 +1,9 @@
+{
+  "name": "e2e-dashboard",
+  "version": "1.0.0",
+  "description": "Install a real-time Playwright E2E test dashboard (live SSE progress, 14 features) into any project.",
+  "author": { "name": "FaisalNoman", "url": "https://github.com/FaisalNoman" },
+  "homepage": "https://github.com/FaisalNoman/playwright-skills",
+  "license": "MIT",
+  "keywords": ["playwright", "e2e", "dashboard", "testing", "sse", "skill"]
+}

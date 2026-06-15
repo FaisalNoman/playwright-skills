@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --ink:#0a0d0f;        /* primary anchor */
+    --graphite:#11161a;   /* surface */
+    --line:#1d262c;       /* hairline */
+    --text:#eef2f0;       /* near-white */
+    --muted:#8b9a96;      /* secondary */
+    --accent:#34d399;     /* single brand accent (Playwright green) */
+    --accent-dim:#1f6f53;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1280px;height:640px}
+  body{
+    font-family:"Segoe UI","Inter",system-ui,-apple-system,sans-serif;
+    background:var(--ink);
+    color:var(--text);
+    overflow:hidden;
+    position:relative;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* technical grid background */
+  .grid{
+    position:absolute;inset:0;
+    background-image:
+      linear-gradient(var(--line) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:48px 48px;
+    opacity:.18;
+  }
+  /* stage spotlight — palette-matched radial, low chroma */
+  .spot{
+    position:absolute;
+    width:900px;height:900px;
+    right:-200px;top:-360px;
+    background:radial-gradient(circle, rgba(52,211,153,.20) 0%, rgba(52,211,153,.06) 35%, transparent 65%);
+    filter:blur(2px);
+  }
+  .frame{position:absolute;inset:0;padding:72px 80px;display:flex;flex-direction:column;justify-content:space-between}
+
+  /* top row */
+  .top{display:flex;align-items:center;justify-content:space-between}
+  .kicker{display:flex;align-items:center;gap:14px;font-size:18px;letter-spacing:.32em;text-transform:uppercase;color:var(--muted)}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 16px rgba(52,211,153,.8)}
+  .tools{display:flex;gap:10px}
+  .tool{font-size:16px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:8px 16px;letter-spacing:.02em}
+
+  /* center / lead block (bottom-left lead) */
+  .lead{margin-top:auto;margin-bottom:18px}
+  h1{
+    font-size:104px;line-height:.96;font-weight:700;letter-spacing:-.03em;
+  }
+  h1 .accent{color:var(--accent)}
+  .tag{margin-top:26px;font-size:30px;font-weight:400;color:#cdd6d2;letter-spacing:-.01em;max-width:880px}
+
+  /* skill chips */
+  .chips{display:flex;gap:16px;margin-top:34px}
+  .chip{
+    display:flex;align-items:center;gap:12px;
+    background:var(--graphite);border:1px solid var(--line);border-radius:14px;
+    padding:16px 22px;
+  }
+  .chip b{font-size:22px;font-weight:600;letter-spacing:-.01em}
+  .chip span{font-size:16px;color:var(--muted)}
+  .chip .sq{width:10px;height:24px;border-radius:3px;background:var(--accent)}
+  .chip .sq.alt{background:var(--accent-dim)}
+
+  /* bottom install line */
+  .bottom{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:24px}
+  .cmd{font-family:"Cascadia Code","Consolas",ui-monospace,monospace;font-size:18px;color:var(--muted)}
+  .cmd b{color:var(--accent);font-weight:600}
+  .by{font-size:16px;color:var(--muted);letter-spacing:.04em}
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="spot"></div>
+  <div class="frame">
+    <div class="top">
+      <div class="kicker"><span class="dot"></span> Playwright · E2E · AI agents</div>
+      <div class="tools">
+        <div class="tool">Claude Code</div>
+        <div class="tool">Codex</div>
+        <div class="tool">Cursor</div>
+      </div>
+    </div>
+
+    <div class="lead">
+      <h1>playwright<span class="accent">·</span>skills</h1>
+      <p class="tag">Two Playwright E2E skills for AI coding agents — install to any tool.</p>
+      <div class="chips">
+        <div class="chip"><span class="sq"></span><div><b>playwright-setup</b><br><span>Generate a full E2E suite from scratch</span></div></div>
+        <div class="chip"><span class="sq alt"></span><div><b>e2e-dashboard</b><br><span>Real-time test dashboard, live SSE</span></div></div>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div class="cmd"><b>/plugin</b> marketplace add FaisalNoman/playwright-skills</div>
+      <div class="by">github.com/FaisalNoman</div>
+    </div>
+  </div>
+</body>
+</html>

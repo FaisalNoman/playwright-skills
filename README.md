@@ -4,8 +4,6 @@
 
 Two Playwright E2E skills for AI coding agents, shippable to **Claude Code**, **Codex CLI**, and **Cursor**.
 
-![e2e-dashboard live demo](.github/E2E-Dashboard-demo-optimized.gif)
-
 | Skill | What it does |
 |-------|--------------|
 | **playwright-setup** | Scans project docs/source, interviews you, generates a complete Playwright E2E test suite + config from scratch. |

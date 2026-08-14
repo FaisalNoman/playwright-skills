@@ -85,6 +85,7 @@ After scanning, fill in any gaps with ONE focused message covering ALL open ques
 - Mobile viewports needed?
 - Any existing test files to follow as style guide?
 - Should Page Object Model pattern be used?
+- Run tests in parallel within a file (`fullyParallel: true`), or serially (`false`)? Default suggestion: serial (`false`) for suites sharing one seeded DB/backend state, parallel for suites that are fully state-isolated per test. Ask only if the DB/backend-sharing signal isn't clear from the earlier scan.
 
 **After interview**: summarise understanding in bullet form. Ask:
 > "Does this capture everything? Any gaps before I plan?"
@@ -157,10 +158,10 @@ export default defineConfig({
   testDir: './tests/e2e',
   globalSetup: './tests/global-setup.ts',  // omit if no setup needed
   outputDir: './test-results/artifacts',
-  fullyParallel: false,
+  fullyParallel: FULLY_PARALLEL, // from Phase 2 interview — false if tests share seeded DB/backend state
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 0 : 1,
-  workers: process.env.CI ? 1 : 2,
+  workers: process.env.CI ? 1 : WORKERS, // from Phase 2 interview — default 2, raise if suite is fully state-isolated
   timeout: 60000,
   reporter: [
     ['list'],
@@ -195,7 +196,7 @@ export default defineConfig({
 });
 ```
 
-Adapt: remove `globalSetup` if not needed, add multiple projects if multiple baseURLs exist, fill in actual commands from package.json.
+Adapt: remove `globalSetup` if not needed, add multiple projects if multiple baseURLs exist, fill in actual commands from package.json, substitute `FULLY_PARALLEL`/`WORKERS` from the Phase 2 answer (default `false`/`2` if the user had no preference and state-sharing signals were ambiguous).
 
 ### 2. `tests/global-setup.ts` (only if auth or DB seed needed)
 

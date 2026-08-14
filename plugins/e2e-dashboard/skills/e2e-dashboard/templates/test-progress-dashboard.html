@@ -666,6 +666,18 @@ function isFlaky(testId) {
   return false;
 }
 
+function testHistoryDots(testId) {
+  if (!runHistory.length) return '';
+  const runs = runHistory.slice(0, 10).slice().reverse(); // oldest-first for left-to-right reading
+  const dots = runs.map(run => {
+    const s = run.testResults?.[testId];
+    const cls = s === 'passed' ? 's-passed' : (s === 'failed' || s === 'timedOut') ? 's-failed' : s === 'skipped' ? 's-skipped' : 's-pending';
+    const glyph = s === 'passed' ? '●' : (s === 'failed' || s === 'timedOut') ? '●' : '○';
+    return `<span class="${cls}" style="font-size:9px" title="${h(s || 'not run')}">${glyph}</span>`;
+  }).join(' ');
+  return `<div class="detail-section-title" style="margin-top:12px">Last ${runs.length} runs</div><div>${dots}</div>`;
+}
+
 // ── ETA ───────────────────────────────────────────────────────────────────────
 function computeETA() {
   if (!state || state.status !== 'running' || !state.startTime || state.total === 0) return '';
@@ -1168,7 +1180,8 @@ function renderDetail() {
     ${attachDetailHtml}
     <div class="detail-section-title" style="margin-top:14px">Steps (${steps.length})</div>
     <div class="step-list">${stepItems}</div>
-    ${errHtml}`;
+    ${errHtml}
+    ${testHistoryDots(t.id)}`;
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────

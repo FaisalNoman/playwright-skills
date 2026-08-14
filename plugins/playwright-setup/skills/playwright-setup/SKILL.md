@@ -318,7 +318,7 @@ Also note: "Run `/e2e-dashboard` to add the real-time test progress dashboard."
 
 - Every `test()` must have a clear assertion — no empty tests
 - Group related tests in `test.describe()` blocks
-- Use `test.skip()` with reason for known-broken flows (not `test.fixme()`)
+- Use `test.fixme()` with a reason for known-broken flows (not `test.skip()`) — `fixme()` signals "this needs fixing", `skip()` signals "not applicable right now" (e.g. feature-flagged off, wrong environment)
 - Keep each spec file focused on ONE feature or user journey
 - Test the happy path AND one failure/validation path per flow minimum
 - If a flow requires auth, use the auth fixture — don't re-login in every test

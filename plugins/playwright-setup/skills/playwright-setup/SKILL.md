@@ -357,7 +357,7 @@ node tests/reporters/progress-server.js
 4. [any project-specific steps found during scan]
 ```
 
-Also note: "Run `/e2e-dashboard` to add the real-time test progress dashboard."
+Then ask: "Add the real-time test progress dashboard now? (`/e2e-dashboard` — live SSE test progress, re-run individual tests, trace viewer integration)" If yes, invoke the `e2e-dashboard` skill directly in this same session rather than just telling the user to run it themselves.
 
 ---
 

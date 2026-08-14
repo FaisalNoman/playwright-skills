@@ -1,16 +1,21 @@
-// Real-time test progress SSE server — port 7373
+// Real-time test progress SSE server — binds to 127.0.0.1 only, port auto-falls-back
 // %%ADAPT%% See e2e-dashboard SKILL.md Phase 3 for adaptation instructions
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
 
-const PORT         = 7373;
-const ROOT         = path.join(__dirname, '..', '..'); // %%ADAPT_ROOT%%
-const HTML_PATH    = path.join(__dirname, '..', 'test-progress-dashboard.html'); // %%ADAPT_HTML_PATH%%
-const E2E_DIR      = path.join(ROOT, 'tests', 'e2e'); // %%ADAPT_E2E_DIR%%
-const SPEC_EXT     = '.spec.ts'; // %%ADAPT_SPEC_EXT%%
-const HISTORY_FILE = path.join(ROOT, 'test-results', '.run-history.json');
+const HOST          = '127.0.0.1';
+const BASE_PORT     = process.env.E2E_DASHBOARD_PORT ? Number(process.env.E2E_DASHBOARD_PORT) : 7373;
+const PORT_ATTEMPTS = 10;
+const ROOT          = path.join(__dirname, '..', '..'); // %%ADAPT_ROOT%%
+const HTML_PATH     = path.join(__dirname, '..', 'test-progress-dashboard.html'); // %%ADAPT_HTML_PATH%%
+const E2E_DIR       = path.join(ROOT, 'tests', 'e2e'); // %%ADAPT_E2E_DIR%%
+const SPEC_EXT      = '.spec.ts'; // %%ADAPT_SPEC_EXT%%
+const HISTORY_FILE  = path.join(ROOT, 'test-results', '.run-history.json');
+const TOKEN         = process.env.E2E_DASHBOARD_TOKEN || crypto.randomBytes(16).toString('hex');
+let   ORIGIN        = ''; // set once the server is actually listening
 
 // Detect primary screen size at startup so interactive runs can be positioned on the right half
 let SCREEN_W = 1920, SCREEN_H = 1080;
@@ -404,12 +409,36 @@ function applyEvent(event) {
   }
 }
 
-server.listen(PORT, () => {
-  console.log(`[progress-server] Listening on http://localhost:${PORT}`);
-  console.log(`[progress-server] Dashboard: http://localhost:${PORT}/dashboard`);
+let currentPort = BASE_PORT;
+let portAttemptsLeft = PORT_ATTEMPTS;
+
+server.on('listening', () => {
+  const addr = server.address();
+  ORIGIN = `http://${HOST}:${addr.port}`;
+  console.log(`[progress-server] Listening on ${ORIGIN}`);
+  console.log(`[progress-server] Dashboard: ${ORIGIN}/dashboard`);
+  console.log(`[progress-server] Token: ${TOKEN}`);
 });
 
-process.on('SIGTERM', () => { killCurrent(); server.close(); });
-process.on('SIGINT',  () => { killCurrent(); server.close(); });
+server.on('error', err => {
+  if (err.code === 'EADDRINUSE' && portAttemptsLeft > 0) {
+    portAttemptsLeft--;
+    console.log(`[progress-server] Port ${currentPort} in use, trying ${currentPort + 1}…`);
+    currentPort++;
+    server.listen(currentPort, HOST);
+  } else {
+    console.error('[progress-server] Failed to bind to a port:', err.message);
+    process.exit(1);
+  }
+});
 
-module.exports = { server };
+if (require.main === module) {
+  server.listen(currentPort, HOST);
+  process.on('SIGTERM', () => { killCurrent(); server.close(); });
+  process.on('SIGINT',  () => { killCurrent(); server.close(); });
+}
+
+module.exports = {
+  server, state, resetRunState, applyEvent, safeArtifactPath,
+  TOKEN, HOST, scanTestFiles,
+};

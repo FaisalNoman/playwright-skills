@@ -346,7 +346,7 @@
       <option value="slowest">Slowest first</option>
     </select>
     <div class="seed-toggle" title="Skip DB seed on quick re-runs">
-      <input type="checkbox" id="skip-seed" checked>
+      <input type="checkbox" id="skip-seed">
       <label for="skip-seed">Skip DB seed</label>
     </div>
   </div>
@@ -432,7 +432,7 @@
 </div>
 
 <script>
-const SERVER = 'http://localhost:7373';
+const SERVER = window.location.origin;
 const DASHBOARD_TOKEN = '%%RUNTIME_TOKEN%%';
 
 // ── App state ────────────────────────────────────────────────────────────────
@@ -481,7 +481,7 @@ document.addEventListener('click', e => {
   const traceBtn = e.target.closest('[data-trace-path]');
   if (traceBtn) {
     e.stopPropagation();
-    fetch(`${SERVER}/open-trace?p=${encodeURIComponent(traceBtn.dataset.tracePath)}`, { method: 'POST' }).catch(() => {});
+    fetch(`${SERVER}/open-trace?p=${encodeURIComponent(traceBtn.dataset.tracePath)}`, { method: 'POST', headers: { 'X-Dashboard-Token': DASHBOARD_TOKEN } }).catch(() => {});
     return;
   }
 
@@ -649,7 +649,7 @@ function computeETA() {
 async function runAll()              { await doRun({}); }
 async function runFile(file)         { await doRun({ file }); }
 async function runTestByTitle(file, title) { await doRun({ file, grep: escRe(title) }); }
-async function stopRun()             { try { await fetch(`${SERVER}/stop`, { method: 'POST' }); } catch {} }
+async function stopRun()             { try { await fetch(`${SERVER}/stop`, { method: 'POST', headers: { 'X-Dashboard-Token': DASHBOARD_TOKEN } }); } catch {} }
 
 async function runFailed() {
   if (!state) return;
@@ -665,7 +665,7 @@ async function doRun(params) {
   try {
     await fetch(`${SERVER}/run`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Dashboard-Token': DASHBOARD_TOKEN },
       body: JSON.stringify({ ...params, mode: runMode, slowMo, skipSeed }),
     });
   } catch {
@@ -830,7 +830,7 @@ async function selectFile(file) {
   selectedFile = file;
   if (file && !(state && state.suites[file]) && !pendingTitles[file]) {
     try {
-      const r = await fetch(`${SERVER}/filetests?file=${encodeURIComponent(file)}`);
+      const r = await fetch(`${SERVER}/filetests?file=${encodeURIComponent(file)}`, { headers: { 'X-Dashboard-Token': DASHBOARD_TOKEN } });
       pendingTitles[file] = (await r.json()).titles || [];
     } catch { pendingTitles[file] = []; }
   }

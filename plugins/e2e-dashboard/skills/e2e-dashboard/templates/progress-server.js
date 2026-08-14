@@ -238,6 +238,21 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── GET /report?file=<path within test-results/> (static CI report mode) ─
+  if (req.method === 'GET' && req.url.startsWith('/report')) {
+    if (!checkToken(req, res)) return;
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+    const rawPath = decodeURIComponent(new URLSearchParams(qs).get('file') || '');
+    const safe = safeArtifactPath(rawPath);
+    if (!safe) { res.writeHead(403).end('Forbidden'); return; }
+    try {
+      const json = JSON.parse(fs.readFileSync(safe, 'utf8'));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(stateFromPlaywrightJson(json)));
+    } catch (e) { res.writeHead(500).end('Could not parse report: ' + e.message); }
+    return;
+  }
+
   // ── GET /serve?p=<path> (serve artifact files within test-results/) ───
   if (req.method === 'GET' && req.url.startsWith('/serve')) {
     const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
@@ -371,6 +386,32 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ── event application ─────────────────────────────────────────────────────────
+
+// Reshape a Playwright --reporter=json output file into this server's `state` shape,
+// so a finished CI run can be viewed in the same UI with no live server loop.
+function stateFromPlaywrightJson(json) {
+  const s = { status: 'done', startTime: null, endTime: null, total: 0, passed: 0, failed: 0, skipped: 0, running: 0, tests: {}, suites: {}, steps: {}, errors: [] };
+  const walk = (suite, filePath) => {
+    const file = filePath || suite.file || '';
+    for (const spec of suite.specs || []) {
+      for (const t of spec.tests || []) {
+        const id = `${file}::${spec.title}`;
+        const result = t.results?.[t.results.length - 1] || {};
+        const status = result.status || 'skipped';
+        s.tests[id] = { id, title: spec.title, file, line: spec.line || null, describes: [], status, duration: result.duration ?? null, error: result.error ? { message: result.error.message } : null, attachments: result.attachments || [], retry: t.results ? t.results.length - 1 : 0 };
+        if (!s.suites[file]) s.suites[file] = { file, tests: [] };
+        s.suites[file].tests.push(id);
+        s.total++;
+        if (status === 'passed') s.passed++;
+        else if (status === 'failed' || status === 'timedOut') s.failed++;
+        else s.skipped++;
+      }
+    }
+    for (const sub of suite.suites || []) walk(sub, file);
+  };
+  for (const suite of json.suites || []) walk(suite, suite.file);
+  return s;
+}
 
 function applyEvent(event) {
   switch (event.type) {

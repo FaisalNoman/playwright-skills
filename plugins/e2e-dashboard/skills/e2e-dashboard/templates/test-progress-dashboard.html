@@ -1200,7 +1200,16 @@ function catLabel(cat) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-connect();
+const reportFile = new URLSearchParams(window.location.search).get('report');
+if (reportFile) {
+  setConn('ok', 'static report');
+  fetch(`${SERVER}/report?file=${encodeURIComponent(reportFile)}`, { headers: { 'X-Dashboard-Token': DASHBOARD_TOKEN } })
+    .then(r => r.json())
+    .then(s => { state = s; render(); })
+    .catch(() => alert('Could not load report file: ' + reportFile));
+} else {
+  connect();
+}
 loadFiles();
 loadHistory();
 </script>

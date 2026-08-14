@@ -281,12 +281,25 @@ TEST_PASSWORD=yourpassword
 
 ---
 
+## Phase 4.5 — Verify (mandatory, before reporting success)
+
+Do NOT report the suite as ready without running this check.
+
+1. Run: `npx playwright test --list`
+2. **If it exits non-zero or prints a parse/syntax error:** fix the specific file it points to and re-run. Do not proceed to Phase 5 until this exits 0.
+3. **If it exits 0:** note the total test count it reports and cross-check it against the plan's "# Tests" column from Phase 3 — if they don't match, investigate why (a `describe.skip`, a typo in a `test.describe` block, etc.) before reporting done.
+4. Include the verified count in the Phase 5 report ("✓ N tests verified with `playwright test --list`") — this is the one concrete piece of evidence that the generated suite is actually runnable, not just plausible-looking code.
+
+---
+
 ## Phase 5 — Confirm
 
 After writing all files, report:
 
 ```
 ## ✓ Playwright Setup Complete
+
+**Verified:** `npx playwright test --list` reports N tests (matches the plan).
 
 ### Files created
 - playwright.config.ts

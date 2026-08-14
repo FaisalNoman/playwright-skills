@@ -17,6 +17,8 @@ Three files wired into Playwright:
 
 **14 features**: live SSE stream · sidebar file filter · per-file/per-test run buttons · re-run failed · failures-only toggle · test name search · sort (default/failed-first/slowest) · describe-block nesting · flakiness badge (from run history) · ETA during run · screenshot thumbnails · Playwright Trace Viewer integration · copy error button · browser notifications · compact mode · keyboard shortcuts · auto-scroll to first failure · failure grouping by error pattern.
 
+**Security model**: the server binds to `127.0.0.1` only (never reachable off the local machine), locks CORS to its own origin (no wildcard), and requires an `X-Dashboard-Token` header — generated at startup and printed to the console — on every state-changing route (`/run`, `/stop`, `/open-trace`, `/filetests`). The served dashboard HTML has the token injected automatically; nothing to configure. Set `E2E_DASHBOARD_TOKEN` to pin a fixed token (e.g. for scripted use), and `E2E_DASHBOARD_PORT` to pin a starting port (auto-falls-back by +1 up to 10 times if it's taken, so multiple projects' dashboards can run concurrently).
+
 ---
 
 ## Phase 1 — Discovery
@@ -150,7 +152,8 @@ Report back:
 
 | Problem | Fix |
 |---------|-----|
-| Port 7373 already in use | Tell user to change `PORT` constant in progress-server.js AND `const SERVER` in dashboard HTML |
+| Port busy | No action needed — the server auto-tries the next 10 ports and logs which one it bound. Set `E2E_DASHBOARD_PORT` to pin a specific starting port. |
+| 401 on every action | The dashboard page must be loaded from the *same* server that's running (`http://127.0.0.1:<port>/`) — opening the HTML file directly (`file://`) skips the token injection. |
 | Tests not scanning in sidebar | Check `E2E_DIR` and `SPEC_EXT` match actual file locations |
 | File keys don't match sidebar | `FILE_KEY_PREFIX` in scanTestFiles() must produce the same paths that `testFile()` in realtime-reporter returns |
 | Reporter not firing | Confirm the path in playwright.config exists and is relative to the config file location |

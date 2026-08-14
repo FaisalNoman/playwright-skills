@@ -411,6 +411,7 @@
 <!-- ── Lightbox ───────────────────────────────────────────────────────────────── -->
 <div id="lightbox" class="lightbox hidden" onclick="closeLightbox()">
   <img id="lightbox-img" src="" alt="Screenshot">
+  <video id="lightbox-video" class="hidden" controls autoplay></video>
 </div>
 
 <!-- ── Shortcuts modal ───────────────────────────────────────────────────────── -->
@@ -487,7 +488,11 @@ document.addEventListener('click', e => {
 
   // Screenshot thumbnail
   const thumbImg = e.target.closest('.thumb-img');
-  if (thumbImg) { e.stopPropagation(); openLightbox(thumbImg.src); return; }
+  if (thumbImg) { e.stopPropagation(); openLightbox(thumbImg.src, 'image'); return; }
+
+  // Video play button
+  const videoBtn = e.target.closest('[data-video-path]');
+  if (videoBtn) { e.stopPropagation(); openLightbox(videoBtn.dataset.videoPath, 'video'); return; }
 
   // Failure group test chip
   const fgTest = e.target.closest('.fg-test[data-test-id]');
@@ -585,11 +590,23 @@ function sendNotif(title, body) {
 }
 
 // ── Lightbox ──────────────────────────────────────────────────────────────────
-function openLightbox(src) {
-  document.getElementById('lightbox-img').src = src;
+function openLightbox(src, kind) {
+  const img = document.getElementById('lightbox-img');
+  const vid = document.getElementById('lightbox-video');
+  if (kind === 'video') {
+    img.classList.add('hidden'); img.src = '';
+    vid.classList.remove('hidden'); vid.src = src;
+  } else {
+    vid.classList.add('hidden'); vid.pause(); vid.src = '';
+    img.classList.remove('hidden'); img.src = src;
+  }
   document.getElementById('lightbox').classList.remove('hidden');
 }
-function closeLightbox() { document.getElementById('lightbox').classList.add('hidden'); }
+function closeLightbox() {
+  document.getElementById('lightbox').classList.add('hidden');
+  const vid = document.getElementById('lightbox-video');
+  vid.pause(); vid.src = '';
+}
 
 // ── Failure groups ────────────────────────────────────────────────────────────
 function toggleFailureGroups() {
@@ -1039,11 +1056,12 @@ function testRowHTML(t, file, s) {
     errHtml = `<div class="test-error-snippet"><button class="copy-err-btn" data-copy-err="${h(msg)}" title="Copy error">⎘</button>${h(msg)}</div>`;
   }
 
-  // Attachments: screenshots + traces
+  // Attachments: screenshots + traces + videos
   const screenshots = (t.attachments || []).filter(a => a.name === 'screenshot' && a.path);
   const traces      = (t.attachments || []).filter(a => a.name === 'trace'      && a.path);
+  const videos      = (t.attachments || []).filter(a => a.name === 'video'      && a.path);
   let attachHtml = '';
-  if ((screenshots.length || traces.length) && t.status !== 'running') {
+  if ((screenshots.length || traces.length || videos.length) && t.status !== 'running') {
     attachHtml = '<div class="attachment-bar">';
     for (const sc of screenshots) {
       const url = `${SERVER}/serve?p=${encodeURIComponent(sc.path)}`;
@@ -1051,6 +1069,10 @@ function testRowHTML(t, file, s) {
     }
     for (const tr of traces) {
       attachHtml += `<button class="trace-btn" data-trace-path="${h(tr.path)}" title="Open in Playwright Trace Viewer">🎬 Trace</button>`;
+    }
+    for (const v of videos) {
+      const url = `${SERVER}/serve?p=${encodeURIComponent(v.path)}`;
+      attachHtml += `<button class="trace-btn" data-video-path="${h(url)}" title="Play video">▶ Video</button>`;
     }
     attachHtml += '</div>';
   }

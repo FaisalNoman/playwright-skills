@@ -68,11 +68,44 @@ test('hasShellMetachars flags dangerous characters', () => {
 test('applyEvent begin: two overlapping runIds do not clobber each other\'s targeted-ness', () => {
   const mod = require(path.join(tmpRoot, 'tests', 'reporters', 'progress-server.js'));
   mod.resetRunState();
-  // Simulate: /run (full) fires, then /run (targeted) fires before the first's
-  // 'begin' event is processed — each carries its own runId, so order of
-  // arrival can't cross-contaminate state the way the old shared flag did.
-  mod.state.tests['t1'] = { id: 't1', status: 'passed' };
-  mod.applyEvent({ type: 'begin', startTime: Date.now(), total: 5, runId: null }); // full run, no id
+
+  // Simulate two /run requests that both fired (and registered their
+  // pendingRuns entry) before either reporter connected back with a 'begin'
+  // event. 'A' is created FIRST but is the TARGETED run; 'B' is created
+  // SECOND but is the FULL (untargeted) run. A keyed-Map lookup must resolve
+  // each runId to its own isTargeted value regardless of creation order —
+  // a shared-boolean implementation (the pre-Task-5 bug) could not do this
+  // correctly once a second /run overwrote the shared flag.
+  mod.pendingRuns.set('A', { isTargeted: true });
+  mod.pendingRuns.set('B', { isTargeted: false });
+
+  // Seed some prior-run results so there's something for a "targeted" begin
+  // to recompute counters from.
+  mod.state.tests['old1'] = { id: 'old1', status: 'passed' };
+  mod.state.tests['old2'] = { id: 'old2', status: 'failed' };
+
+  // B's 'begin' (the full/untargeted run) arrives FIRST, even though its
+  // pendingRuns entry was created SECOND — order of arrival, not order of
+  // creation, must determine behavior.
+  mod.applyEvent({ type: 'begin', startTime: Date.now(), total: 5, runId: 'B' });
   assert.equal(mod.state.total, 5);
-  assert.equal(Object.keys(mod.state.tests).length, 0);
+  assert.equal(Object.keys(mod.state.tests).length, 0); // full run clears everything
+  assert.equal(mod.pendingRuns.has('B'), false); // consumed
+
+  // Re-seed state.tests to simulate B's run having produced some results
+  // before the next request (A's 'begin') arrives.
+  mod.state.tests['new1'] = { id: 'new1', status: 'passed' };
+  mod.state.tests['new2'] = { id: 'new2', status: 'passed' };
+
+  // A's 'begin' (the targeted run) arrives SECOND, even though its
+  // pendingRuns entry was created FIRST.
+  mod.applyEvent({ type: 'begin', startTime: Date.now(), total: 99, runId: 'A' });
+  const testCount = Object.keys(mod.state.tests).length;
+  assert.ok(testCount > 0); // targeted branch does NOT clear state.tests
+  assert.equal(mod.state.total, testCount); // targeted branch recomputes total from state.tests, ignoring event.total
+  assert.equal(mod.pendingRuns.has('A'), false); // consumed
+
+  // This proves runId 'A' independently resolved to isTargeted:true and
+  // runId 'B' independently resolved to isTargeted:false, with no
+  // cross-contamination between the two overlapping runs.
 });

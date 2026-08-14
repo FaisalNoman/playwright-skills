@@ -494,4 +494,5 @@ module.exports = {
   server, state, resetRunState, applyEvent, safeArtifactPath,
   TOKEN, HOST, scanTestFiles, checkToken,
   isKnownSpecFile, isKnownSpecFileArg, hasShellMetachars,
+  pendingRuns,
 };

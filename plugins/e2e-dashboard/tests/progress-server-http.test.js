@@ -35,6 +35,17 @@ before(async () => {
   fs.copyFileSync(REPORTER, path.join(tmpRoot, 'tests', 'reporters', 'realtime-reporter.js'));
   fs.copyFileSync(HTML, path.join(tmpRoot, 'tests', 'test-progress-dashboard.html'));
 
+  // A real spec file that exists on disk but lives OUTSIDE E2E_DIR
+  // (tmpRoot/tests/e2e) — mirrors the sibling-directory trick used by the
+  // safeArtifactPath traversal test. It must be reachable via path.join(ROOT, fileParam)
+  // (ROOT === tmpRoot here) so a bypassed isKnownSpecFile guard would actually leak it.
+  fs.mkdirSync(path.join(tmpRoot, 'secret'), { recursive: true });
+  fs.writeFileSync(path.join(tmpRoot, 'secret', 'leaked.spec.ts'), [
+    "import { test } from '@playwright/test';",
+    "test('LEAKED_TITLE_SHOULD_NEVER_APPEAR', () => {});",
+    '',
+  ].join('\n'));
+
   child = spawn(process.execPath, [path.join(tmpRoot, 'tests', 'reporters', 'progress-server.js')], {
     cwd: tmpRoot,
     env: { ...process.env, E2E_DASHBOARD_PORT: '0' }, // OS picks an ephemeral port
@@ -99,9 +110,16 @@ test('OPTIONS preflight from a foreign Origin is not granted access', async () =
 });
 
 test('GET /filetests with a traversal path returns no titles', async () => {
-  const res = await fetch(origin + '/filetests?file=' + encodeURIComponent('../../../../etc/passwd.spec.ts'), {
+  // 'secret/leaked.spec.ts' resolves (via path.join(ROOT, fileParam)) to a REAL
+  // file on disk that DOES contain a distinctive test title — but it lives
+  // outside E2E_DIR, so isKnownSpecFile's containment check must reject it.
+  // Unlike a nonexistent traversal path (which would return [] regardless of
+  // whether the guard exists, because fs.readFileSync would throw either way),
+  // this proves the guard itself — not a missing file — is what prevents the leak.
+  const res = await fetch(origin + '/filetests?file=' + encodeURIComponent('secret/leaked.spec.ts'), {
     headers: { 'X-Dashboard-Token': token },
   });
   const json = await res.json();
+  assert.ok(!json.titles.includes('LEAKED_TITLE_SHOULD_NEVER_APPEAR'));
   assert.deepEqual(json.titles, []);
 });

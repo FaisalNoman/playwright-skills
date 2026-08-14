@@ -69,6 +69,22 @@ function scanTestFiles() {
   } catch { return []; }
 }
 
+function isKnownSpecFile(fileParam) {
+  if (!fileParam || (!fileParam.endsWith('.spec.ts') && !fileParam.endsWith('.spec.js'))) return false;
+  const candidate = path.resolve(ROOT, fileParam);
+  const rel = path.relative(E2E_DIR, candidate);
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+function isKnownSpecFileArg(fileArg) {
+  const m = /^(.*):(\d+)$/.exec(fileArg);
+  return isKnownSpecFile(m ? m[1] : fileArg);
+}
+
+function hasShellMetachars(str) {
+  return /[;&|`$<>(){}\n\r]/.test(str);
+}
+
 function setCors(res) {
   // Locked to this server's own origin — never reflect the request's Origin.
   // A wildcard here (or echoing the caller's Origin) is what makes the
@@ -180,7 +196,7 @@ const server = http.createServer(async (req, res) => {
     if (!checkToken(req, res)) return;
     const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
     const fileParam = new URLSearchParams(qs).get('file') || '';
-    if (!fileParam.endsWith('.spec.ts') && !fileParam.endsWith('.spec.js')) {
+    if (!isKnownSpecFile(fileParam)) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ titles: [] }));
       return;
@@ -262,6 +278,18 @@ const server = http.createServer(async (req, res) => {
     try { params = JSON.parse(body); } catch {}
 
     const { file, grep, mode = 'background', slowMo = 0, skipSeed = false } = params;
+
+    if (file && (hasShellMetachars(file) || !isKnownSpecFileArg(file))) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unknown or unsafe file' }));
+      return;
+    }
+    if (grep && hasShellMetachars(grep)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unsafe grep value' }));
+      return;
+    }
+
     isTargetedRun = !!(file || grep);
 
     killCurrent();
@@ -459,4 +487,5 @@ if (require.main === module) {
 module.exports = {
   server, state, resetRunState, applyEvent, safeArtifactPath,
   TOKEN, HOST, scanTestFiles, checkToken,
+  isKnownSpecFile, isKnownSpecFileArg, hasShellMetachars,
 };

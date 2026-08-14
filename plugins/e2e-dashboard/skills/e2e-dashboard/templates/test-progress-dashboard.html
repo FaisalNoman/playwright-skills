@@ -411,7 +411,7 @@
 <!-- ── Lightbox ───────────────────────────────────────────────────────────────── -->
 <div id="lightbox" class="lightbox hidden" onclick="closeLightbox()">
   <img id="lightbox-img" src="" alt="Screenshot">
-  <video id="lightbox-video" class="hidden" controls autoplay></video>
+  <video id="lightbox-video" class="hidden" controls autoplay onclick="event.stopPropagation()"></video>
 </div>
 
 <!-- ── Shortcuts modal ───────────────────────────────────────────────────────── -->
@@ -596,6 +596,7 @@ function openLightbox(src, kind) {
   if (kind === 'video') {
     img.classList.add('hidden'); img.src = '';
     vid.classList.remove('hidden'); vid.src = src;
+    vid.play().catch(() => {});
   } else {
     vid.classList.add('hidden'); vid.pause(); vid.src = '';
     img.classList.remove('hidden'); img.src = src;

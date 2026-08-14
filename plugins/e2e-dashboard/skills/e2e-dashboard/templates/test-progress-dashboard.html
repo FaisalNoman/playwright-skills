@@ -635,7 +635,22 @@ function failureGroupsHTML() {
     const chips = tests.map(t => `<span class="fg-test" data-test-id="${h(t.id)}">${h(t.title)}</span>`).join('');
     inner += `<div class="failure-group"><div class="fg-error">${h(key)}${key.length >= 100 ? '…' : ''}</div><div class="fg-tests">${chips}</div></div>`;
   }
-  return `<div class="failure-groups"><div class="fg-header" onclick="toggleFailureGroups()"><span>⚠ ${h(label)}</span><span class="fg-toggle" id="fg-toggle">${fgCollapsed ? '▸' : '▾'}</span></div><div class="fg-body${fgCollapsed ? ' hidden' : ''}" id="fg-body">${inner}</div></div>`;
+  return `<div class="failure-groups"><div class="fg-header" onclick="toggleFailureGroups()"><span>⚠ ${h(label)}</span><button class="btn-ghost" style="margin-left:auto" onclick="event.stopPropagation(); copyFailuresMarkdown()">📋 Copy as Markdown</button><span class="fg-toggle" id="fg-toggle">${fgCollapsed ? '▸' : '▾'}</span></div><div class="fg-body${fgCollapsed ? ' hidden' : ''}" id="fg-body">${inner}</div></div>`;
+}
+
+
+function copyFailuresMarkdown() {
+  if (!state) return;
+  const failures = Object.values(state.tests).filter(t => t.status === 'failed' || t.status === 'timedOut');
+  if (!failures.length) return;
+  const lines = ['# Test failures', ''];
+  for (const t of failures) {
+    lines.push(`## ${t.title}`);
+    lines.push(`- File: `${t.file}`);
+    if (t.error?.message) lines.push('```\n' + t.error.message + '\n```');
+    lines.push('');
+  }
+  navigator.clipboard.writeText(lines.join('\n')).catch(() => {});
 }
 
 // ── Flakiness ─────────────────────────────────────────────────────────────────

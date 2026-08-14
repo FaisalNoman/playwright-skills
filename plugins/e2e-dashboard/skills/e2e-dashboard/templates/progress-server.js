@@ -54,9 +54,10 @@ let state = {
 };
 
 let currentProcess        = null;
-let isTargetedRun         = false;  // set before spawning, consumed in applyEvent('begin')
 let currentRunIsTargeted  = false;  // persists through the run for 'end' handler
 const sseClients          = new Set();
+const pendingRuns         = new Map(); // runId -> { isTargeted } — set at spawn, consumed by applyEvent('begin')
+let   runCounter          = 0;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -290,11 +291,14 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    isTargetedRun = !!(file || grep);
+    const targeted = !!(file || grep);
+    const runId = String(++runCounter);
+    pendingRuns.set(runId, { isTargeted: targeted });
+    if (pendingRuns.size > 50) pendingRuns.delete(pendingRuns.keys().next().value); // bound memory
 
     killCurrent();
 
-    if (isTargetedRun) {
+    if (targeted) {
       // Preserve test/suite data so other rows stay on screen
       state.status = 'idle';
       state.startTime = null; state.endTime = null;
@@ -313,7 +317,7 @@ const server = http.createServer(async (req, res) => {
     if (grep) args.push('--grep', grep);
     if (mode === 'interactive') args.push('--headed');
 
-    const env = { ...process.env };
+    const env = { ...process.env, E2E_RUN_ID: runId };
     if (skipSeed) env.SKIP_GLOBAL_SETUP = 'true'; // Remove if no globalSetup
     if (mode === 'interactive' && slowMo > 0) env.PLAYWRIGHT_SLOW_MO = String(slowMo);
     if (mode === 'interactive') {
@@ -375,7 +379,10 @@ function applyEvent(event) {
       state.startTime = event.startTime;
       state.endTime = null;
       state.errors = [];
-      if (isTargetedRun) {
+      const meta = event.runId ? pendingRuns.get(event.runId) : null;
+      if (event.runId) pendingRuns.delete(event.runId);
+      const targeted = meta ? meta.isTargeted : false;
+      if (targeted) {
         currentRunIsTargeted = true;
         // Recompute counters from actual test data — baseline must be accurate
         // before the targeted run's testBegin/testEnd incremental updates start
@@ -385,7 +392,6 @@ function applyEvent(event) {
         state.skipped = known.filter(t => t.status === 'skipped').length;
         state.running = 0;
         state.total   = known.length;
-        isTargetedRun = false;
       } else {
         currentRunIsTargeted = false;
         state.total   = event.total;

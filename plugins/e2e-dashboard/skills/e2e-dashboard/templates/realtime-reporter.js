@@ -38,7 +38,7 @@ function getDescribes(test) {
 
 class RealtimeReporter {
   onBegin(config, suite) {
-    post({ type: 'begin', startTime: Date.now(), total: suite.allTests().length });
+    post({ type: 'begin', startTime: Date.now(), total: suite.allTests().length, runId: process.env.E2E_RUN_ID || null });
   }
 
   onTestBegin(test) {

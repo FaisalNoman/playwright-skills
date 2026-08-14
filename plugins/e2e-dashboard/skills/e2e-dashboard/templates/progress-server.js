@@ -70,9 +70,19 @@ function scanTestFiles() {
 }
 
 function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // Locked to this server's own origin — never reflect the request's Origin.
+  // A wildcard here (or echoing the caller's Origin) is what makes the
+  // /run endpoint CSRF-able from any webpage the developer has open.
+  res.setHeader('Access-Control-Allow-Origin', ORIGIN || `http://${HOST}:${BASE_PORT}`);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Dashboard-Token');
+}
+
+function checkToken(req, res) {
+  if (req.headers['x-dashboard-token'] === TOKEN) return true;
+  res.writeHead(401, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Missing or invalid X-Dashboard-Token header' }));
+  return false;
 }
 
 function broadcast(event, data) {
@@ -167,6 +177,7 @@ const server = http.createServer(async (req, res) => {
 
   // ── GET /filetests?file=tests/e2e/foo.spec.ts ─────────────────────────
   if (req.method === 'GET' && req.url.startsWith('/filetests')) {
+    if (!checkToken(req, res)) return;
     const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
     const fileParam = new URLSearchParams(qs).get('file') || '';
     if (!fileParam.endsWith('.spec.ts') && !fileParam.endsWith('.spec.js')) {
@@ -228,6 +239,7 @@ const server = http.createServer(async (req, res) => {
 
   // ── POST /open-trace?p=<trace-zip-path> ──────────────────────────────
   if (req.method === 'POST' && req.url.startsWith('/open-trace')) {
+    if (!checkToken(req, res)) return;
     const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
     const rawPath = decodeURIComponent(new URLSearchParams(qs).get('p') || '');
     const safe = safeArtifactPath(rawPath);
@@ -244,6 +256,7 @@ const server = http.createServer(async (req, res) => {
 
   // ── POST /run ─────────────────────────────────────────────────────────
   if (req.method === 'POST' && req.url === '/run') {
+    if (!checkToken(req, res)) return;
     const body = await readBody(req);
     let params = {};
     try { params = JSON.parse(body); } catch {}
@@ -301,6 +314,7 @@ const server = http.createServer(async (req, res) => {
 
   // ── POST /stop ────────────────────────────────────────────────────────
   if (req.method === 'POST' && req.url === '/stop') {
+    if (!checkToken(req, res)) return;
     killCurrent();
     if (state.status === 'running') {
       state.status = 'done'; state.endTime = Date.now(); state.running = 0;
@@ -314,7 +328,7 @@ const server = http.createServer(async (req, res) => {
   // ── GET / or /dashboard ───────────────────────────────────────────────
   if (req.method === 'GET' && (req.url === '/' || req.url === '/dashboard')) {
     try {
-      const html = fs.readFileSync(HTML_PATH, 'utf8');
+      const html = fs.readFileSync(HTML_PATH, 'utf8').replace('%%RUNTIME_TOKEN%%', TOKEN);
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(html);
     } catch (_) { res.writeHead(404).end('Dashboard HTML not found'); }
@@ -444,5 +458,5 @@ if (require.main === module) {
 
 module.exports = {
   server, state, resetRunState, applyEvent, safeArtifactPath,
-  TOKEN, HOST, scanTestFiles,
+  TOKEN, HOST, scanTestFiles, checkToken,
 };

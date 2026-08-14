@@ -1,0 +1,25 @@
+name: e2e-dashboard tests
+
+on:
+  push:
+    paths:
+      - 'plugins/e2e-dashboard/**'
+      - '.github/workflows/e2e-dashboard-tests.yml'
+  pull_request:
+    paths:
+      - 'plugins/e2e-dashboard/**'
+      - '.github/workflows/e2e-dashboard-tests.yml'
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [18.x, 20.x]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: node --test plugins/e2e-dashboard/tests/progress-server.test.js plugins/e2e-dashboard/tests/progress-server-http.test.js

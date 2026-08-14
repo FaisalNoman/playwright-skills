@@ -646,7 +646,7 @@ function copyFailuresMarkdown() {
   const lines = ['# Test failures', ''];
   for (const t of failures) {
     lines.push(`## ${t.title}`);
-    lines.push(`- File: `${t.file}`);
+    lines.push(`- File: \`${t.file}\``);
     if (t.error?.message) lines.push('```\n' + t.error.message + '\n```');
     lines.push('');
   }

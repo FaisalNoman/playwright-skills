@@ -75,7 +75,7 @@ After scanning, fill in any gaps with ONE focused message covering ALL open ques
 | 3 | **Auth** | Is login required? What credentials? How many roles? |
 | 4 | **Critical flows** | Top 3–5 user journeys that MUST be tested (e.g. "register → book → cancel") |
 | 5 | **Out of scope** | Any pages/flows explicitly NOT to test now |
-| 6 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`) |
+| 6 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`, and whether a `.github/workflows/e2e.yml` is generated in Phase 4) |
 
 ### Optional (ask only if not inferable from code)
 
@@ -135,6 +135,8 @@ Present as a structured table. Show EVERY planned test — not just files.
 | tests/fixtures/auth.ts | Logged-in page fixture |
 | tests/fixtures/index.ts | Re-export all fixtures |
 ```
+
+Add a `.github/workflows/e2e.yml` row here when the user confirmed CI/CD in Phase 2.
 
 Ask: "Approve this plan? Add, remove, or change anything?"
 
@@ -278,6 +280,37 @@ Tell user to create this file and add to `.gitignore`:
 TEST_EMAIL=your-test-user@example.com
 TEST_PASSWORD=yourpassword
 ```
+
+### 7. `.github/workflows/e2e.yml` (only if the user confirmed CI/CD in Phase 2)
+
+```yaml
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: test-results/html-report
+          retention-days: 14
+```
+
+Adapt: add `TEST_EMAIL`/`TEST_PASSWORD` (and any other `.env.test` values) as repo secrets referenced via `env:` on the `npx playwright test` step if the suite needs auth; add a `services:` block if a real backend/DB is required in CI rather than mocked.
 
 ---
 

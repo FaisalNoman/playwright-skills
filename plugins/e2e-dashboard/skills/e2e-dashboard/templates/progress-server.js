@@ -7,7 +7,19 @@ const crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
 
 const HOST          = '127.0.0.1';
-const BASE_PORT     = process.env.E2E_DASHBOARD_PORT ? Number(process.env.E2E_DASHBOARD_PORT) : 7373;
+
+function resolveBasePort() {
+  const raw = process.env.E2E_DASHBOARD_PORT;
+  if (!raw) return 7373;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) {
+    console.warn(`[progress-server] Invalid E2E_DASHBOARD_PORT "${raw}" — must be an integer 1-65535. Falling back to 7373.`);
+    return 7373;
+  }
+  return n;
+}
+
+const BASE_PORT     = resolveBasePort();
 const PORT_ATTEMPTS = 10;
 const ROOT          = path.join(__dirname, '..', '..'); // %%ADAPT_ROOT%%
 const HTML_PATH     = path.join(__dirname, '..', 'test-progress-dashboard.html'); // %%ADAPT_HTML_PATH%%
@@ -16,6 +28,7 @@ const SPEC_EXT      = '.spec.ts'; // %%ADAPT_SPEC_EXT%%
 const HISTORY_FILE  = path.join(ROOT, 'test-results', '.run-history.json');
 const TOKEN         = process.env.E2E_DASHBOARD_TOKEN || crypto.randomBytes(16).toString('hex');
 let   ORIGIN        = ''; // set once the server is actually listening
+let   ACTIVE_PORT   = null; // the port actually bound (may differ from BASE_PORT after fallback) — set in 'listening' handler
 
 // Detect primary screen size at startup so interactive runs can be positioned on the right half
 let SCREEN_W = 1920, SCREEN_H = 1080;
@@ -171,6 +184,15 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204).end(); return; }
 
   // ── POST /event (from realtime-reporter) ──────────────────────────────
+  // Intentionally not behind checkToken. This IS reachable as a forged
+  // cross-origin POST from any page open in the developer's browser (a plain
+  // POST isn't CORS-preflighted, so the request itself isn't blocked — only
+  // reading the response would be, and this route doesn't need that). It's
+  // left ungated anyway because the worst a forged event can do is corrupt
+  // the live dashboard's displayed state (fake test statuses) — there's no
+  // code-execution or file-read path through this route, and every value it
+  // feeds into the UI is HTML-escaped via the frontend's h() helper, so
+  // there's no XSS either. Purely cosmetic blast radius.
   if (req.method === 'POST' && req.url === '/event') {
     const body = await readBody(req);
     try { applyEvent(JSON.parse(body)); broadcastState(); } catch (_) {}
@@ -333,6 +355,9 @@ const server = http.createServer(async (req, res) => {
     if (mode === 'interactive') args.push('--headed');
 
     const env = { ...process.env, E2E_RUN_ID: runId };
+    // Tell the reporter which port we actually bound to (may have fallen back
+    // past BASE_PORT if it was taken) — see realtime-reporter.js's post().
+    env.E2E_PROGRESS_PORT = String(ACTIVE_PORT || BASE_PORT);
     if (skipSeed) env.SKIP_GLOBAL_SETUP = 'true'; // Remove if no globalSetup
     if (mode === 'interactive' && slowMo > 0) env.PLAYWRIGHT_SLOW_MO = String(slowMo);
     if (mode === 'interactive') {
@@ -507,6 +532,7 @@ let portAttemptsLeft = PORT_ATTEMPTS;
 
 server.on('listening', () => {
   const addr = server.address();
+  ACTIVE_PORT = addr.port;
   ORIGIN = `http://${HOST}:${addr.port}`;
   console.log(`[progress-server] Listening on ${ORIGIN}`);
   console.log(`[progress-server] Dashboard: ${ORIGIN}/dashboard`);

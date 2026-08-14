@@ -126,11 +126,15 @@ function saveHistory() {
   try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(runHistory)); } catch (_) {}
 }
 
-// Validate that a path is inside test-results/ before serving it
+// Validate that a path is inside test-results/ before serving it.
+// Uses path.relative (not startsWith) so a sibling dir like
+// "test-results-secret/" can't pass a naive prefix check.
 function safeArtifactPath(p) {
   const artifactsRoot = path.resolve(ROOT, 'test-results');
   const candidate = path.isAbsolute(p) ? path.resolve(p) : path.resolve(ROOT, p);
-  return candidate.startsWith(artifactsRoot) ? candidate : null;
+  const rel = path.relative(artifactsRoot, candidate);
+  const isInside = rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  return isInside ? candidate : null;
 }
 
 // ── server ────────────────────────────────────────────────────────────────────

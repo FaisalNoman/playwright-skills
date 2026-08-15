@@ -821,9 +821,21 @@ function render() {
   renderHeader();
   renderStats();
   renderProgress();
+  renderCategoryTabs();
   renderSidebar();
   renderContent();
   if (selectedTestId && !document.getElementById('detail-panel').classList.contains('closed')) renderDetail();
+}
+
+function renderCategoryTabs() {
+  const el = document.getElementById('category-tabs');
+  if (categories.length < 2) { el.innerHTML = ''; el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  let html = `<button class="cat-tab${activeCategory === null ? ' active' : ''}" data-cat="">All</button>`;
+  for (const c of categories) {
+    html += `<button class="cat-tab${activeCategory === c.key ? ' active' : ''}" data-cat="${h(c.key)}">${c.icon} ${h(c.label)}</button>`;
+  }
+  el.innerHTML = html;
 }
 
 // ── Header ────────────────────────────────────────────────────────────────────
@@ -899,7 +911,11 @@ function mergedFiles() {
   const fromState = state
     ? Object.keys(state.suites).filter(f => f.endsWith('.spec.ts') || f.endsWith('.spec.js'))
     : [];
-  const all = [...new Set([...availableFiles, ...fromState])].sort();
+  let all = [...new Set([...availableFiles, ...fromState])].sort();
+  if (activeCategory) {
+    const cat = categories.find(c => c.key === activeCategory);
+    if (cat) all = all.filter(f => f.startsWith(cat.prefix + '/'));
+  }
   return sidebarFilter ? all.filter(f => f.toLowerCase().includes(sidebarFilter)) : all;
 }
 
@@ -934,9 +950,11 @@ function renderSidebar() {
     const short  = file.split('/').pop();
     const active = selectedFile === file;
     const fail   = st === 'failed';
+    const cat    = categories.length > 1 && !activeCategory ? categoryOf(file) : null;
+    const icon   = cat ? `${cat.icon} ` : '';
     html += `<div class="suite-item${active ? ' active' : ''}${fail ? ' has-fail' : ''}" data-file="${h(file)}">
       <span class="suite-icon">${suiteIcon(st)}</span>
-      <span class="suite-name" title="${h(file)}">${h(short)}</span>
+      <span class="suite-name" title="${h(file)}">${icon}${h(short)}</span>
       <span class="suite-count">${tests.length ? `${passC}/${tests.length}` : ''}</span>
       <button class="suite-run-btn" data-run-file="${h(file)}" title="Run ${h(short)}">▶</button>
     </div>`;

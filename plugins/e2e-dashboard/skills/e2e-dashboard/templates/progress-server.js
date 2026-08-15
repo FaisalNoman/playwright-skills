@@ -184,7 +184,9 @@ function focusInteractiveBrowser(rootPid) {
     '}',
   ].join('\n');
   try {
-    spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { stdio: 'ignore', detached: true }).unref();
+    const ps = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { shell: true, stdio: 'ignore', detached: true });
+    ps.on('error', () => {}); // best-effort UX polish — must never crash the server if powershell isn't on PATH
+    ps.unref();
   } catch (_) {}
 }
 

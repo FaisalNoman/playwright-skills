@@ -142,6 +142,10 @@
   .sidebar-heading { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px; }
   #file-search { width: 100%; background: #21262d; border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 12px; padding: 4px 7px; outline: none; }
   #file-search:focus { border-color: var(--blue); }
+  .category-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+  .cat-tab { background: transparent; color: var(--muted); padding: 3px 8px; border-radius: 5px; font-size: 10px; font-weight: 600; border: 1px solid var(--border); cursor: pointer; white-space: nowrap; }
+  .cat-tab.active { background: var(--surface2); color: var(--text); border-color: var(--blue); }
+  .cat-tab:hover:not(.active) { color: var(--text); }
   .sidebar-list { flex: 1; overflow-y: auto; padding: 3px 0; }
   .suite-item { padding: 5px 8px; display: flex; align-items: center; gap: 6px; cursor: pointer; transition: background .1s; border-left: 2px solid transparent; min-height: 30px; }
   .suite-item:hover { background: #21262d; }
@@ -372,6 +376,7 @@
   <div class="sidebar">
     <div class="sidebar-top">
       <div class="sidebar-heading" id="sidebar-heading">Test Files</div>
+      <div class="category-tabs hidden" id="category-tabs"></div>
       <input type="search" id="file-search" placeholder="🔍 Filter files…" oninput="filterSidebar(this.value)">
     </div>
     <div class="sidebar-list" id="sidebar-list"></div>

@@ -146,18 +146,31 @@ function readBody(req) {
 // Windows blocks a background process from stealing window focus (the
 // "foreground lock"), so an automated Chromium window opens correctly
 // positioned/sized but stays behind other windows until manually clicked.
-// The ALT-key trick is the standard, documented workaround: simulating a
-// keypress makes Windows treat the next SetForegroundWindow call as
-// user-initiated. We poll briefly because the Chromium window doesn't
-// exist yet at spawn time — it can take a second or two to appear.
+// AttachThreadInput is the reliable technique for this: temporarily borrow
+// the input thread of whatever window currently owns the foreground, which
+// grants us standing to call SetForegroundWindow on the target, then detach.
+// (A simpler ALT-keypress simulation was tried first — it worked when a
+// human ran the script directly from their own terminal, but not through
+// this Node → PowerShell → target-window chain, since the PowerShell
+// process spawned here has no foreground standing of its own either.)
+// Logs to test-results/.focus-debug.log so a failure is diagnosable without
+// another guess-and-check round. We poll briefly because the Chromium
+// window doesn't exist yet at spawn time — it can take a second or two.
 function focusInteractiveBrowser(rootPid) {
   if (process.platform !== 'win32') return;
+  const logPath = path.join(ROOT, 'test-results', '.focus-debug.log');
   const script = [
     "$ErrorActionPreference = 'SilentlyContinue'",
+    `$logPath = '${logPath.replace(/'/g, "''")}'`,
+    'function Log($msg) { Add-Content -Path $logPath -Value "$(Get-Date -Format o) $msg" }',
     "Add-Type -Name Win32Focus -Namespace Native -MemberDefinition '",
     '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);',
     '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);',
-    '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);',
+    '[DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);',
+    '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
+    '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);',
+    '[DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);',
+    '[DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();',
     "'",
     'function Get-DescendantPids($rootId) {',
     '  $all = New-Object System.Collections.Generic.List[int]; $all.Add($rootId)',
@@ -170,18 +183,31 @@ function focusInteractiveBrowser(rootPid) {
     '  }',
     '  return $all',
     '}',
+    `Log "Starting focus attempt for root PID ${rootPid}"`,
+    '$target = $null',
     'for ($i = 0; $i -lt 20; $i++) {',
     '  Start-Sleep -Milliseconds 300',
     `  $pids = Get-DescendantPids ${rootPid}`,
     "  $target = Get-Process -Id $pids -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and $_.ProcessName -like 'chrome*' } | Select-Object -First 1",
-    '  if ($target) {',
-    '    [Native.Win32Focus]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)',
-    '    [Native.Win32Focus]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)',
-    '    [Native.Win32Focus]::ShowWindow($target.MainWindowHandle, 9) | Out-Null',
-    '    [Native.Win32Focus]::SetForegroundWindow($target.MainWindowHandle) | Out-Null',
-    '    break',
-    '  }',
+    '  if ($target) { Log "Found target after $($i+1) tries: PID=$($target.Id) Handle=$($target.MainWindowHandle) Title=$($target.MainWindowTitle)"; break }',
     '}',
+    'if (-not $target) { Log "FAILED: no chrome window found after 6s"; exit }',
+    '',
+    '$fgThread = 0',
+    '$fg = [Native.Win32Focus]::GetForegroundWindow()',
+    '[Native.Win32Focus]::GetWindowThreadProcessId($fg, [ref]$fgThread) | Out-Null',
+    '$myThread = [Native.Win32Focus]::GetCurrentThreadId()',
+    'Log "Foreground window before: $fg (thread $fgThread), my thread: $myThread"',
+    '',
+    '[Native.Win32Focus]::AttachThreadInput($fgThread, $myThread, $true) | Out-Null',
+    '[Native.Win32Focus]::BringWindowToTop($target.MainWindowHandle) | Out-Null',
+    '[Native.Win32Focus]::ShowWindow($target.MainWindowHandle, 9) | Out-Null',
+    '$result = [Native.Win32Focus]::SetForegroundWindow($target.MainWindowHandle)',
+    '[Native.Win32Focus]::AttachThreadInput($fgThread, $myThread, $false) | Out-Null',
+    '',
+    'Start-Sleep -Milliseconds 200',
+    '$after = [Native.Win32Focus]::GetForegroundWindow()',
+    'Log "SetForegroundWindow returned: $result. Foreground after: $after. Success: $($after -eq $target.MainWindowHandle)"',
   ].join('\n');
   try {
     const ps = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { shell: true, stdio: 'ignore', detached: true });

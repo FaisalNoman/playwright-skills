@@ -1,6 +1,6 @@
 ---
 name: e2e-dashboard
-description: Install real-time Playwright E2E test dashboard into any project. Streams live test progress via SSE with 14 features.
+description: Install real-time Playwright E2E test dashboard into any project. Streams live test progress via SSE with 24 features.
 ---
 
 # E2E Dashboard Installer
@@ -15,7 +15,9 @@ Three files wired into Playwright:
 | `{reporters_dir}/realtime-reporter.js` | Playwright custom reporter — POSTs events to server as tests run |
 | `{tests_dir}/test-progress-dashboard.html` | Single-page dashboard served at `http://localhost:7373` |
 
-**14 features**: live SSE stream · sidebar file filter · per-file/per-test run buttons · re-run failed · failures-only toggle · test name search · sort (default/failed-first/slowest) · describe-block nesting · flakiness badge (from run history) · ETA during run · screenshot thumbnails · Playwright Trace Viewer integration · copy error button · browser notifications · compact mode · keyboard shortcuts · auto-scroll to first failure · failure grouping by error pattern.
+**24 features**: live SSE stream · sidebar file filter · category tabs (auto-hidden when only one test category — E2E, Security, or Perf — is installed) · per-file/per-test run buttons · re-run failed · failures-only toggle · test name search · sort (default/failed-first/slowest) · describe-block nesting · flakiness badge (from run history) · ETA during run · screenshot thumbnails · Playwright Trace Viewer integration · copy error button · browser notifications · compact mode · keyboard shortcuts · auto-scroll to first failure · failure grouping by error pattern · video attachments · Markdown failure export · static CI-report mode · per-test run-history strip · inline spec source view + edit-and-save (writes back to disk via the same file whitelist /run uses).
+
+**Security model**: the server binds to `127.0.0.1` only (never reachable off the local machine), locks CORS to its own origin (no wildcard), and requires an `X-Dashboard-Token` header — generated at startup and printed to the console — on every state-changing route (`/run`, `/stop`, `/open-trace`, `/filetests`). The served dashboard HTML has the token injected automatically; nothing to configure. Set `E2E_DASHBOARD_TOKEN` to pin a fixed token (e.g. for scripted use), and `E2E_DASHBOARD_PORT` to pin a starting port (auto-falls-back by +1 up to 10 times if it's taken, so multiple projects' dashboards can run concurrently).
 
 ---
 
@@ -27,6 +29,7 @@ Before writing any files, find these values. Use `Glob` and `Read` to check the 
 |-------|-------------|---------|
 | `project_root` | Directory containing `playwright.config.ts` or `playwright.config.js` | cwd |
 | `e2e_dir` | Directory where `*.spec.ts` / `*.spec.js` files live | `{root}/tests/e2e` |
+| `category_dirs` | Sibling directories of `e2e_dir`'s parent (`{root}/tests/*/`) that contain `*{spec_ext}` files — use Glob `tests/*/*.spec.ts` (or `.js`) | just `e2e` if none found — no behavior change for existing single-category projects |
 | `reporters_dir` | Where to place server + reporter | `{root}/tests/reporters` |
 | `html_dest` | Where to place dashboard HTML | `{root}/tests/test-progress-dashboard.html` |
 | `spec_ext` | File extension of test specs | `.spec.ts` |
@@ -44,6 +47,8 @@ Compute the template variables below from those paths.
 | `SPEC_EXT` | Spec file extension | `.spec.ts` |
 | `FILE_KEY_PREFIX` | Prefix used in file identity keys shown in UI | `tests/e2e` |
 | `REPORTER_CONFIG_PATH` | Path in playwright.config reporter array, relative to config | `./tests/reporters/realtime-reporter.js` |
+
+If Glob finds more than one populated `tests/<name>/` directory, confirm the full set with the user in the same discovery/confirmation message from Phase 1 — don't silently drop any of them. If only one is found (or the project is a first-time install with no test files yet), proceed with the single-category `e2e` default exactly as documented below — this is the common case and needs no extra confirmation.
 
 **Ask the user in one message** to confirm these values (or auto-detect and proceed if they're unambiguous).
 
@@ -73,9 +78,37 @@ The template has `%%ADAPT_*%%` comment markers. Replace the **entire line** cont
 |--------|-------------|
 | `%%ADAPT_ROOT%%` | `const ROOT = path.join(__dirname, ROOT_FROM_REPORTERS);` |
 | `%%ADAPT_HTML_PATH%%` | `const HTML_PATH = path.join(__dirname, HTML_FROM_REPORTERS);` |
-| `%%ADAPT_E2E_DIR%%` | `const E2E_DIR = path.join(ROOT, 'E2E_PATH_FROM_ROOT');` |
+| `%%ADAPT_CATEGORIES%%` | `const CATEGORIES = [ ... ];` — one object per detected category dir, see below |
 | `%%ADAPT_SPEC_EXT%%` | `const SPEC_EXT = 'SPEC_EXT';` |
-| `%%ADAPT_FILE_PREFIX%%` | `.map(f => \`FILE_KEY_PREFIX/\${f}\`);` |
+
+### Building the `CATEGORIES` array
+
+Each detected `category_dirs` entry becomes one object in the array:
+
+```js
+{ key: 'e2e', label: 'E2E / Smoke', icon: '🧭', dir: path.join(ROOT, 'tests', 'e2e'), prefix: 'tests/e2e' }
+```
+
+`dir` is built the same way `ROOT` is in `%%ADAPT_ROOT%%` — always `path.join(ROOT, 'tests', '<name>')`. `prefix` is always `tests/<name>` (POSIX, no leading/trailing slash).
+
+| Detected dir name | `label` | `icon` |
+|---|---|---|
+| `e2e` | `E2E / Smoke` | `🧭` |
+| `security` | `Security` | `🛡️` |
+| `perf` | `Performance` | `⚡` |
+| anything else | Title-cased dir name | `🧪` |
+
+Example for a project with all three (replace the single-entry default line with this):
+
+```js
+const CATEGORIES = [
+  { key: 'e2e',      label: 'E2E / Smoke', icon: '🧭', dir: path.join(ROOT, 'tests', 'e2e'),      prefix: 'tests/e2e' },
+  { key: 'security', label: 'Security',    icon: '🛡️', dir: path.join(ROOT, 'tests', 'security'), prefix: 'tests/security' },
+  { key: 'perf',     label: 'Performance', icon: '⚡', dir: path.join(ROOT, 'tests', 'perf'),     prefix: 'tests/perf' },
+];
+```
+
+For a single-category project, keep the shipped default (one `e2e` entry) unchanged — do not edit this line at all.
 
 Example for a project where reporters are at `e2e/support/reporters/` (3 levels deep):
 - `%%ADAPT_ROOT%%` → `const ROOT = path.join(__dirname, '..', '..', '..');`
@@ -115,6 +148,10 @@ launchOptions: {
   args: process.env.PW_WIN_X != null ? [
     `--window-position=${process.env.PW_WIN_X},${process.env.PW_WIN_Y || '0'}`,
     `--window-size=${process.env.PW_WIN_W || '960'},${process.env.PW_WIN_H || '1080'}`,
+    // Windows treats a newly-launched automated Chromium window as
+    // "occluded" even though it's on top of nothing — Chrome then
+    // throttles/backgrounds it, which shows up as opening minimized.
+    '--disable-features=CalculateNativeWinOcclusion',
   ] : [],
 },
 ```
@@ -150,8 +187,12 @@ Report back:
 
 | Problem | Fix |
 |---------|-----|
-| Port 7373 already in use | Tell user to change `PORT` constant in progress-server.js AND `const SERVER` in dashboard HTML |
-| Tests not scanning in sidebar | Check `E2E_DIR` and `SPEC_EXT` match actual file locations |
-| File keys don't match sidebar | `FILE_KEY_PREFIX` in scanTestFiles() must produce the same paths that `testFile()` in realtime-reporter returns |
+| Port busy | No action needed — the server auto-tries the next 10 ports and logs which one it bound. Set `E2E_DASHBOARD_PORT` to pin a specific starting port. |
+| 401 on every action | The dashboard page must be loaded from the *same* server that's running (`http://127.0.0.1:<port>/`) — opening the HTML file directly (`file://`) skips the token injection. |
+| Tests not scanning in sidebar | Check each `CATEGORIES` entry's `dir` and the shared `SPEC_EXT` match actual file locations |
+| File keys don't match sidebar | Each `CATEGORIES` entry's `prefix` in scanTestFiles() must produce the same paths that `testFile()` in realtime-reporter returns |
 | Reporter not firing | Confirm the path in playwright.config exists and is relative to the config file location |
 | Screenshots/traces not loading | The `/serve` endpoint only serves files inside `test-results/` — confirm `outputDir` in playwright.config points there |
+| Category tabs not showing | By design when only one category dir has spec files — `GET /categories` returns a single entry and the tab row stays hidden. Add a second `tests/<category>/*.spec.ts` file (e.g. via `/playwright-setup` with Security-smoke or Perf-smoke selected) to see tabs appear. |
+| Edits not saving | Check the console for a "Save failed" alert with the server's error message — usually a permissions issue on the file, or the file was deleted/moved after the panel loaded. |
+| Saved content looks wrong after re-opening | The save is a full-file overwrite with no conflict detection — if the file was also edited outside the dashboard (IDE, git) between load and save, the dashboard's version wins. Re-open (📄 View source) before editing if you suspect the file changed elsewhere. |

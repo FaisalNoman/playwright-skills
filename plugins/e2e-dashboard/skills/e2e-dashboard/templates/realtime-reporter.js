@@ -1,4 +1,4 @@
-// Playwright custom reporter — streams events to progress-server on port 7373
+// Playwright custom reporter — streams events to progress-server
 // %%ADAPT%% See e2e-dashboard SKILL.md Phase 3 for adaptation instructions
 const http = require('http');
 
@@ -6,7 +6,12 @@ function post(event) {
   const body = JSON.stringify(event);
   const req = http.request({
     hostname: 'localhost',
-    port: 7373,
+    // progress-server passes the port it actually bound (it falls back past
+    // 7373 if that port is taken) via E2E_PROGRESS_PORT on the spawned env.
+    // Fall back to 7373 when running outside a server-spawned process (e.g.
+    // `npx playwright test` run directly from the terminal) — there's no way
+    // to know the real port in that case, so 7373 is the best guess.
+    port: Number(process.env.E2E_PROGRESS_PORT) || 7373,
     path: '/event',
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
@@ -38,7 +43,7 @@ function getDescribes(test) {
 
 class RealtimeReporter {
   onBegin(config, suite) {
-    post({ type: 'begin', startTime: Date.now(), total: suite.allTests().length });
+    post({ type: 'begin', startTime: Date.now(), total: suite.allTests().length, runId: process.env.E2E_RUN_ID || null });
   }
 
   onTestBegin(test) {

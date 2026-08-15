@@ -6,8 +6,8 @@ Two Playwright E2E skills for AI coding agents, shippable to **Claude Code**, **
 
 | Skill | What it does |
 |-------|--------------|
-| **playwright-setup** | Scans project docs/source, interviews you, generates a complete Playwright E2E test suite + config from scratch. |
-| **e2e-dashboard** | Installs a real-time Playwright test dashboard (live SSE progress, 14 features) into any project. |
+| **playwright-setup** | Scans project docs/source, interviews you, generates a complete Playwright test suite (E2E/Smoke, plus optional Security-smoke and Performance-smoke) + config from scratch. |
+| **e2e-dashboard** | Installs a real-time Playwright test dashboard (live SSE progress, 24 features, category tabs when multiple test types are installed, inline spec source view/edit-and-save) into any project. |
 
 ---
 

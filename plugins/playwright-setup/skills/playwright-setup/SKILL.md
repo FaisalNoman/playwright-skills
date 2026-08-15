@@ -75,7 +75,18 @@ After scanning, fill in any gaps with ONE focused message covering ALL open ques
 | 3 | **Auth** | Is login required? What credentials? How many roles? |
 | 4 | **Critical flows** | Top 3–5 user journeys that MUST be tested (e.g. "register → book → cancel") |
 | 5 | **Out of scope** | Any pages/flows explicitly NOT to test now |
-| 6 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`) |
+| 6 | **Test categories** | Which test categories to scaffold — see "Test Categories" below |
+| 7 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`, and whether a `.github/workflows/e2e.yml` is generated in Phase 4) |
+
+### Test Categories
+
+Ask this as a dedicated multi-select question — use the `AskUserQuestion` tool with `multiSelect: true` — rather than folding it into the free-text interview message:
+
+- **E2E / Smoke** (default selected) — user-journey specs under `tests/e2e/`. This is what Phase 3/4 already produce and is the only category most projects need.
+- **Security-smoke** — `tests/security/` specs covering response security headers, an auth-bypass probe, and a reflected-input/XSS check. This is a lightweight smoke layer, **not a substitute for real penetration testing** — say so explicitly if the user's framing suggests they expect full pentest coverage.
+- **Performance-smoke** — `tests/perf/` specs asserting page-load timing budgets via the browser's Navigation Timing API. This is a lightweight smoke layer, **not a substitute for real load testing** (concurrent virtual users) — say so explicitly if the user's framing suggests they expect load-test coverage.
+
+Selecting more than one category changes `playwright.config.ts`'s `testDir` in Phase 4 and adds the corresponding spec-file sections to the Phase 3 plan and Phase 4 implementation.
 
 ### Optional (ask only if not inferable from code)
 
@@ -85,6 +96,7 @@ After scanning, fill in any gaps with ONE focused message covering ALL open ques
 - Mobile viewports needed?
 - Any existing test files to follow as style guide?
 - Should Page Object Model pattern be used?
+- Run tests in parallel within a file (`fullyParallel: true`), or serially (`false`)? Default suggestion: serial (`false`) for suites sharing one seeded DB/backend state, parallel for suites that are fully state-isolated per test. Ask only if the DB/backend-sharing signal isn't clear from the earlier scan.
 
 **After interview**: summarise understanding in bullet form. Ask:
 > "Does this capture everything? Any gaps before I plan?"
@@ -96,6 +108,8 @@ Do not proceed until confirmed.
 ## Phase 3 — Test Plan
 
 Present as a structured table. Show EVERY planned test — not just files.
+
+When more than one category was selected in Phase 2, group the "Files to create" and "Test titles" tables by category (E2E / Smoke, Security-smoke, Performance-smoke, in that order) instead of one flat list — each category gets its own subheading.
 
 ### Format
 
@@ -136,6 +150,8 @@ Present as a structured table. Show EVERY planned test — not just files.
 | tests/fixtures/index.ts | Re-export all fixtures |
 ```
 
+Add a `.github/workflows/e2e.yml` row here when the user confirmed CI/CD in Phase 2.
+
 Ask: "Approve this plan? Add, remove, or change anything?"
 
 Do NOT write any files until approved.
@@ -155,10 +171,10 @@ export default defineConfig({
   testDir: './tests/e2e',
   globalSetup: './tests/global-setup.ts',  // omit if no setup needed
   outputDir: './test-results/artifacts',
-  fullyParallel: false,
+  fullyParallel: FULLY_PARALLEL, // from Phase 2 interview — false if tests share seeded DB/backend state
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 0 : 1,
-  workers: process.env.CI ? 1 : 2,
+  workers: process.env.CI ? 1 : WORKERS, // from Phase 2 interview — default 2, raise if suite is fully state-isolated
   timeout: 60000,
   reporter: [
     ['list'],
@@ -172,6 +188,10 @@ export default defineConfig({
       args: process.env.PW_WIN_X != null ? [
         `--window-position=${process.env.PW_WIN_X},${process.env.PW_WIN_Y || '0'}`,
         `--window-size=${process.env.PW_WIN_W || '960'},${process.env.PW_WIN_H || '1080'}`,
+        // Windows treats a newly-launched automated Chromium window as
+        // "occluded" even though it's on top of nothing — Chrome then
+        // throttles/backgrounds it, which shows up as opening minimized.
+        '--disable-features=CalculateNativeWinOcclusion',
       ] : [],
     },
   },
@@ -193,7 +213,11 @@ export default defineConfig({
 });
 ```
 
-Adapt: remove `globalSetup` if not needed, add multiple projects if multiple baseURLs exist, fill in actual commands from package.json.
+Adapt: remove `globalSetup` if not needed, add multiple projects if multiple baseURLs exist, fill in actual commands from package.json, substitute `FULLY_PARALLEL`/`WORKERS` from the Phase 2 answer (default `false`/`2` if the user had no preference and state-sharing signals were ambiguous).
+
+`testDir` depends on how many categories were selected in Phase 2:
+- **Single category (E2E only, the default):** `testDir: './tests/e2e'` — unchanged from today.
+- **Two or more categories:** `testDir: './tests'` (the parent dir) so Playwright's default recursive glob (`**/*.spec.ts`) picks up `tests/e2e/`, `tests/security/`, and `tests/perf/` together. Do not add a `testMatch` override — the default pattern already covers all three subfolders.
 
 ### 2. `tests/global-setup.ts` (only if auth or DB seed needed)
 
@@ -271,6 +295,68 @@ test.describe('Feature Name', () => {
 - Write tests that depend on execution order
 - Share state between tests — each test must be independently runnable
 
+#### Security-smoke spec files (only if selected in Phase 2)
+
+Write to `tests/security/*.spec.ts`. Start every security-smoke file with this header comment so it's unambiguous in review:
+
+```typescript
+// Security SMOKE checks — not a penetration test. Verifies baseline hygiene
+// (headers, auth gating, reflected-input handling) on every CI run; it does
+// not replace a real security assessment.
+import { test, expect } from '@playwright/test';
+
+test.describe('Security headers', () => {
+  test('should set core security headers on the home page', async ({ page }) => {
+    const response = await page.goto('/');
+    const headers = response?.headers() ?? {};
+    expect(headers['x-content-type-options']).toBe('nosniff');
+    expect(headers['x-frame-options'] || headers['content-security-policy']).toBeTruthy();
+  });
+});
+
+test.describe('Auth bypass', () => {
+  test('should redirect unauthenticated users away from a protected page', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page).toHaveURL(/login/);
+  });
+});
+
+test.describe('Reflected input handling', () => {
+  test('should not execute a script injected via a query parameter', async ({ page }) => {
+    await page.goto('/search?q=%3Cscript%3Ewindow.__xss_marker__=true%3C%2Fscript%3E');
+    const executed = await page.evaluate(() => (window /** @type {any} */)['__xss_marker__']);
+    expect(executed).toBeUndefined();
+  });
+});
+```
+
+Adapt the URLs/selectors to the actual project (a real protected route for the auth-bypass test, a real user-input-reflecting page for the injection test). If no page reflects raw query/form input anywhere, say so in the Phase 3 plan and drop that one test rather than inventing a fake target.
+
+#### Performance-smoke spec files (only if selected in Phase 2)
+
+Write to `tests/perf/*.spec.ts`. Uses the browser's built-in Navigation Timing API — no new dependency. Start every perf-smoke file with this header comment:
+
+```typescript
+// Performance SMOKE checks — not a load test. Asserts single-user page-load
+// timing budgets on every CI run; it does not simulate concurrent traffic.
+import { test, expect } from '@playwright/test';
+
+const BUDGET_MS = 3000; // adjust to the project's actual SLA
+
+test.describe('Page load budget', () => {
+  test('should load the home page within budget', async ({ page }) => {
+    await page.goto('/');
+    const timing = await page.evaluate(() => {
+      const [nav] = performance.getEntriesByType('navigation');
+      return { domContentLoaded: nav.domContentLoadedEventEnd, loadEvent: nav.loadEventEnd };
+    });
+    expect(timing.domContentLoaded).toBeLessThan(BUDGET_MS);
+  });
+});
+```
+
+Add one `test()` per critical page from the Phase 2 "Critical flows" answer, not just the home page — reuse `BUDGET_MS` unless the user gave a different budget for a specific page.
+
 ### 6. `.env.test` (suggest, don't auto-create)
 
 Tell user to create this file and add to `.gitignore`:
@@ -278,6 +364,48 @@ Tell user to create this file and add to `.gitignore`:
 TEST_EMAIL=your-test-user@example.com
 TEST_PASSWORD=yourpassword
 ```
+
+### 7. `.github/workflows/e2e.yml` (only if the user confirmed CI/CD in Phase 2)
+
+```yaml
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: test-results/html-report
+          retention-days: 14
+```
+
+Adapt: add `TEST_EMAIL`/`TEST_PASSWORD` (and any other `.env.test` values) as repo secrets referenced via `env:` on the `npx playwright test` step if the suite needs auth; add a `services:` block if a real backend/DB is required in CI rather than mocked.
+
+---
+
+## Phase 4.5 — Verify (mandatory, before reporting success)
+
+Do NOT report the suite as ready without running this check.
+
+1. Run: `npx playwright test --list`
+2. **If it exits non-zero or prints a parse/syntax error:** fix the specific file it points to and re-run. Do not proceed to Phase 5 until this exits 0.
+3. **If it exits 0:** note the total test count it reports and cross-check it against the plan's "# Tests" column from Phase 3 — if they don't match, investigate why (a `describe.skip`, a typo in a `test.describe` block, etc.) before reporting done.
+4. Include the verified count in the Phase 5 report ("✓ N tests verified with `playwright test --list`") — this is the one concrete piece of evidence that the generated suite is actually runnable, not just plausible-looking code.
 
 ---
 
@@ -288,6 +416,8 @@ After writing all files, report:
 ```
 ## ✓ Playwright Setup Complete
 
+**Verified:** `npx playwright test --list` reports N tests (matches the plan).
+
 ### Files created
 - playwright.config.ts
 - tests/e2e/auth.spec.ts         (4 tests)
@@ -295,6 +425,11 @@ After writing all files, report:
 - tests/fixtures/auth.ts
 - tests/fixtures/index.ts
 - tests/global-setup.ts
+
+### Categories scaffolded
+- E2E / Smoke: N tests
+- Security-smoke: N tests (smoke-level only — not a penetration test)   ← only if selected
+- Performance-smoke: N tests (smoke-level only — not a load test)      ← only if selected
 
 ### Run tests
 npx playwright test
@@ -310,7 +445,7 @@ node tests/reporters/progress-server.js
 4. [any project-specific steps found during scan]
 ```
 
-Also note: "Run `/e2e-dashboard` to add the real-time test progress dashboard."
+Then ask: "Add the real-time test progress dashboard now? (`/e2e-dashboard` — live SSE test progress, re-run individual tests, trace viewer integration)" If yes, invoke the `e2e-dashboard` skill directly in this same session rather than just telling the user to run it themselves.
 
 ---
 
@@ -318,7 +453,7 @@ Also note: "Run `/e2e-dashboard` to add the real-time test progress dashboard."
 
 - Every `test()` must have a clear assertion — no empty tests
 - Group related tests in `test.describe()` blocks
-- Use `test.skip()` with reason for known-broken flows (not `test.fixme()`)
+- Use `test.fixme()` with a reason for known-broken flows (not `test.skip()`) — `fixme()` signals "this needs fixing", `skip()` signals "not applicable right now" (e.g. feature-flagged off, wrong environment)
 - Keep each spec file focused on ONE feature or user journey
 - Test the happy path AND one failure/validation path per flow minimum
 - If a flow requires auth, use the auth fixture — don't re-login in every test

@@ -1,5 +1,5 @@
 // plugins/e2e-dashboard/tests/progress-server-http.test.js
-const { test, before, after } = require('node:test');
+const { test, before, after, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -122,4 +122,72 @@ test('GET /filetests with a traversal path returns no titles', async () => {
   const json = await res.json();
   assert.ok(!json.titles.includes('LEAKED_TITLE_SHOULD_NEVER_APPEAR'));
   assert.deepEqual(json.titles, []);
+});
+
+test('GET /categories returns a single category for a project with only tests/e2e/', async () => {
+  const res = await fetch(origin + '/categories');
+  const json = await res.json();
+  assert.deepEqual(json.categories.map(c => c.key), ['e2e']);
+});
+
+const SECURITY_FIXTURE = path.join(__dirname, 'fixtures', 'security-example.spec.ts');
+
+describe('multi-category HTTP behavior', () => {
+  let catRoot, catChild, catOrigin;
+
+  before(async () => {
+    catRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-dash-cat-http-'));
+    fs.mkdirSync(path.join(catRoot, 'tests', 'e2e'), { recursive: true });
+    fs.mkdirSync(path.join(catRoot, 'tests', 'security'), { recursive: true });
+    fs.mkdirSync(path.join(catRoot, 'tests', 'reporters'), { recursive: true });
+    fs.mkdirSync(path.join(catRoot, 'test-results'), { recursive: true });
+    fs.copyFileSync(FIXTURE_SPEC, path.join(catRoot, 'tests', 'e2e', 'example.spec.ts'));
+    fs.copyFileSync(SECURITY_FIXTURE, path.join(catRoot, 'tests', 'security', 'headers.spec.ts'));
+    fs.copyFileSync(HTML, path.join(catRoot, 'tests', 'test-progress-dashboard.html'));
+    fs.copyFileSync(REPORTER, path.join(catRoot, 'tests', 'reporters', 'realtime-reporter.js'));
+
+    const src = fs.readFileSync(TEMPLATE, 'utf8');
+    const adapted = src.replace(
+      /^const CATEGORIES.*%%ADAPT_CATEGORIES%%.*$/m,
+      `const CATEGORIES = [
+        { key: 'e2e',      label: 'E2E / Smoke', icon: '🧭', dir: path.join(ROOT, 'tests', 'e2e'),      prefix: 'tests/e2e' },
+        { key: 'security', label: 'Security',    icon: '🛡️', dir: path.join(ROOT, 'tests', 'security'), prefix: 'tests/security' },
+      ];`
+    );
+    fs.writeFileSync(path.join(catRoot, 'tests', 'reporters', 'progress-server.js'), adapted);
+
+    catChild = spawn(process.execPath, [path.join(catRoot, 'tests', 'reporters', 'progress-server.js')], {
+      cwd: catRoot,
+      env: { ...process.env, E2E_DASHBOARD_PORT: '0' },
+    });
+    const originMatch = await waitForLine(catChild.stdout, /Listening on (http:\/\/127\.0\.0\.1:\d+)/);
+    catOrigin = originMatch[1];
+  });
+
+  after(async () => {
+    if (catChild) {
+      catChild.kill();
+      await new Promise(resolve => {
+        if (catChild.exitCode !== null) return resolve();
+        catChild.once('exit', resolve);
+        setTimeout(resolve, 3000);
+      });
+    }
+    fs.rmSync(catRoot, { recursive: true, force: true });
+  });
+
+  test('GET /categories reports both categories for a two-category project', async () => {
+    const res = await fetch(catOrigin + '/categories');
+    const json = await res.json();
+    assert.deepEqual(json.categories.map(c => c.key).sort(), ['e2e', 'security']);
+  });
+
+  test('GET /files lists spec files from every category dir', async () => {
+    const res = await fetch(catOrigin + '/files');
+    const json = await res.json();
+    assert.deepEqual(
+      json.files.sort(),
+      ['tests/e2e/example.spec.ts', 'tests/security/headers.spec.ts'].sort()
+    );
+  });
 });

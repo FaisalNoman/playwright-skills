@@ -337,12 +337,19 @@ const server = http.createServer(async (req, res) => {
     if (!checkToken(req, res)) return;
     const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
     const fileParam = new URLSearchParams(qs).get('file') || '';
-    if (!isKnownSpecFile(fileParam)) { res.writeHead(400).end('Unknown or unsafe file'); return; }
+    if (!isKnownSpecFile(fileParam)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unknown or unsafe file' }));
+      return;
+    }
     try {
       const content = fs.readFileSync(path.join(ROOT, fileParam), 'utf8');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ content }));
-    } catch (_) { res.writeHead(404).end('Not found'); }
+    } catch (_) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not found' }));
+    }
     return;
   }
 
@@ -450,6 +457,11 @@ const server = http.createServer(async (req, res) => {
 
     const { file, grep, mode = 'background', slowMo = 0, skipSeed = false } = params;
 
+    if (file != null && typeof file !== 'string') {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unsafe file' }));
+      return;
+    }
     if (file && (hasShellMetachars(file) || !isKnownSpecFileArg(file))) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unknown or unsafe file' }));

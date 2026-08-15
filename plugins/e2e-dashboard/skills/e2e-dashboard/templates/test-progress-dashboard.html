@@ -903,6 +903,10 @@ function fmtDur(ms) { return ms == null ? '' : ms < 1000 ? ms + 'ms' : (ms / 100
 
 // ── Master render ─────────────────────────────────────────────────────────────
 function render() {
+  if (editingFile) {
+    const ta = document.querySelector('.source-editor');
+    if (ta) sourceCache[editingFile] = ta.value;
+  }
   renderHeader();
   renderStats();
   renderProgress();

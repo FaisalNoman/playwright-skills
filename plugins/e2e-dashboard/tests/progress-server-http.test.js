@@ -126,6 +126,22 @@ test('POST /run with an unknown file is rejected with 400', async () => {
   assert.equal(res.status, 400);
 });
 
+test('POST /run with a non-string file is rejected with 400, not a server crash', async () => {
+  // A truthy non-string `file` (e.g. a number) must not reach isKnownSpecFileArg's
+  // .endsWith() call, which would throw a TypeError and crash the whole server
+  // (there's no surrounding try/catch or uncaughtException handler).
+  const res = await fetch(origin + '/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Dashboard-Token': token },
+    body: JSON.stringify({ file: 12345 }),
+  });
+  assert.equal(res.status, 400);
+
+  // The server must still be alive and answering requests afterward.
+  const health = await fetch(origin + '/categories');
+  assert.equal(health.status, 200);
+});
+
 test('OPTIONS preflight from a foreign Origin is not granted access', async () => {
   const res = await fetch(origin + '/run', {
     method: 'OPTIONS',

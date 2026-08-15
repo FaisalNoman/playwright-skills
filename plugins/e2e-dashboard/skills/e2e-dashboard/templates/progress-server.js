@@ -143,6 +143,51 @@ function readBody(req) {
   });
 }
 
+// Windows blocks a background process from stealing window focus (the
+// "foreground lock"), so an automated Chromium window opens correctly
+// positioned/sized but stays behind other windows until manually clicked.
+// The ALT-key trick is the standard, documented workaround: simulating a
+// keypress makes Windows treat the next SetForegroundWindow call as
+// user-initiated. We poll briefly because the Chromium window doesn't
+// exist yet at spawn time — it can take a second or two to appear.
+function focusInteractiveBrowser(rootPid) {
+  if (process.platform !== 'win32') return;
+  const script = [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    "Add-Type -Name Win32Focus -Namespace Native -MemberDefinition '",
+    '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);',
+    '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);',
+    '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);',
+    "'",
+    'function Get-DescendantPids($rootId) {',
+    '  $all = New-Object System.Collections.Generic.List[int]; $all.Add($rootId)',
+    '  $queue = New-Object System.Collections.Generic.Queue[int]; $queue.Enqueue($rootId)',
+    '  while ($queue.Count -gt 0) {',
+    '    $p = $queue.Dequeue()',
+    '    Get-CimInstance Win32_Process -Filter "ParentProcessId=$p" | ForEach-Object {',
+    '      if (-not $all.Contains($_.ProcessId)) { $all.Add($_.ProcessId); $queue.Enqueue($_.ProcessId) }',
+    '    }',
+    '  }',
+    '  return $all',
+    '}',
+    'for ($i = 0; $i -lt 20; $i++) {',
+    '  Start-Sleep -Milliseconds 300',
+    `  $pids = Get-DescendantPids ${rootPid}`,
+    "  $target = Get-Process -Id $pids -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and $_.ProcessName -like 'chrome*' } | Select-Object -First 1",
+    '  if ($target) {',
+    '    [Native.Win32Focus]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)',
+    '    [Native.Win32Focus]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)',
+    '    [Native.Win32Focus]::ShowWindow($target.MainWindowHandle, 9) | Out-Null',
+    '    [Native.Win32Focus]::SetForegroundWindow($target.MainWindowHandle) | Out-Null',
+    '    break',
+    '  }',
+    '}',
+  ].join('\n');
+  try {
+    spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { stdio: 'ignore', detached: true }).unref();
+  } catch (_) {}
+}
+
 function killCurrent() {
   if (!currentProcess) return;
   try {
@@ -397,6 +442,7 @@ const server = http.createServer(async (req, res) => {
         broadcastState();
       }
     });
+    if (mode === 'interactive') focusInteractiveBrowser(currentProcess.pid);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));

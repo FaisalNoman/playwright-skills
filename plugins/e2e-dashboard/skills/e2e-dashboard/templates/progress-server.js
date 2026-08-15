@@ -332,6 +332,47 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── GET /source?file=tests/e2e/foo.spec.ts ─────────────────────────────
+  if (req.method === 'GET' && req.url.startsWith('/source')) {
+    if (!checkToken(req, res)) return;
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+    const fileParam = new URLSearchParams(qs).get('file') || '';
+    if (!isKnownSpecFile(fileParam)) { res.writeHead(400).end('Unknown or unsafe file'); return; }
+    try {
+      const content = fs.readFileSync(path.join(ROOT, fileParam), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ content }));
+    } catch (_) { res.writeHead(404).end('Not found'); }
+    return;
+  }
+
+  // ── POST /save-spec ───────────────────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/save-spec') {
+    if (!checkToken(req, res)) return;
+    const body = await readBody(req);
+    let params = {};
+    try { params = JSON.parse(body); } catch {}
+    const { file, content } = params;
+    if (typeof file !== 'string' || !isKnownSpecFile(file) || typeof content !== 'string') {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unknown or unsafe file' }));
+      return;
+    }
+    const finalPath = path.join(ROOT, file);
+    const tmpPath = `${finalPath}.tmp-${crypto.randomBytes(4).toString('hex')}`;
+    try {
+      fs.writeFileSync(tmpPath, content, 'utf8');
+      fs.renameSync(tmpPath, finalPath); // atomic within the same directory
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (e) {
+      try { fs.unlinkSync(tmpPath); } catch (_) {}
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: String(e.message) }));
+    }
+    return;
+  }
+
   // ── GET /events (SSE) ────────────────────────────────────────────────
   if (req.method === 'GET' && req.url === '/events') {
     res.writeHead(200, {

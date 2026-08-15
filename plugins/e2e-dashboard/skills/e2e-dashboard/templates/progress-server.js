@@ -226,6 +226,13 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── GET /categories ──────────────────────────────────────────────────
+  if (req.method === 'GET' && req.url === '/categories') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ categories: activeCategories() }));
+    return;
+  }
+
   // ── GET /filetests?file=tests/e2e/foo.spec.ts ─────────────────────────
   if (req.method === 'GET' && req.url.startsWith('/filetests')) {
     if (!checkToken(req, res)) return;
@@ -573,5 +580,5 @@ module.exports = {
   server, state, resetRunState, applyEvent, safeArtifactPath,
   TOKEN, HOST, scanTestFiles, checkToken,
   isKnownSpecFile, isKnownSpecFileArg, hasShellMetachars,
-  pendingRuns,
+  pendingRuns, activeCategories, CATEGORIES,
 };

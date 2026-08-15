@@ -23,7 +23,7 @@ const BASE_PORT     = resolveBasePort();
 const PORT_ATTEMPTS = 10;
 const ROOT          = path.join(__dirname, '..', '..'); // %%ADAPT_ROOT%%
 const HTML_PATH     = path.join(__dirname, '..', 'test-progress-dashboard.html'); // %%ADAPT_HTML_PATH%%
-const E2E_DIR       = path.join(ROOT, 'tests', 'e2e'); // %%ADAPT_E2E_DIR%%
+const CATEGORIES    = [ { key: 'e2e', label: 'E2E / Smoke', icon: '🧭', dir: path.join(ROOT, 'tests', 'e2e'), prefix: 'tests/e2e' } ]; // %%ADAPT_CATEGORIES%%
 const SPEC_EXT      = '.spec.ts'; // %%ADAPT_SPEC_EXT%%
 const HISTORY_FILE  = path.join(ROOT, 'test-results', '.run-history.json');
 const TOKEN         = process.env.E2E_DASHBOARD_TOKEN || crypto.randomBytes(16).toString('hex');
@@ -75,19 +75,31 @@ let   runCounter          = 0;
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function scanTestFiles() {
-  try {
-    return fs.readdirSync(E2E_DIR)
-      .filter(f => f.endsWith(SPEC_EXT))
-      .sort()
-      .map(f => `tests/e2e/${f}`); // %%ADAPT_FILE_PREFIX%%
-  } catch { return []; }
+  const out = [];
+  for (const cat of CATEGORIES) {
+    let entries;
+    try { entries = fs.readdirSync(cat.dir); } catch { continue; }
+    for (const f of entries.filter(x => x.endsWith(SPEC_EXT)).sort()) {
+      out.push(`${cat.prefix}/${f}`);
+    }
+  }
+  return out;
+}
+
+function activeCategories() {
+  const files = scanTestFiles();
+  return CATEGORIES
+    .filter(cat => files.some(f => f.startsWith(cat.prefix + '/')))
+    .map(({ key, label, icon, prefix }) => ({ key, label, icon, prefix }));
 }
 
 function isKnownSpecFile(fileParam) {
   if (!fileParam || (!fileParam.endsWith('.spec.ts') && !fileParam.endsWith('.spec.js'))) return false;
   const candidate = path.resolve(ROOT, fileParam);
-  const rel = path.relative(E2E_DIR, candidate);
-  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  return CATEGORIES.some(cat => {
+    const rel = path.relative(cat.dir, candidate);
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  });
 }
 
 function isKnownSpecFileArg(fileArg) {

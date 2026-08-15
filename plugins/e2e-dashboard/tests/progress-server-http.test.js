@@ -25,6 +25,28 @@ function waitForLine(stream, pattern, timeoutMs = 8000) {
   });
 }
 
+// Removing a temp root can race a still-exiting grandchild process (the
+// 'POST /run' tests spawn a real `npx playwright` process tree via
+// shell:true, rooted at the temp dir as its cwd). On Windows that process
+// tree can hold the directory open for a few seconds after the server
+// itself has been killed, which makes a single fs.rmSync attempt fail with
+// EPERM. fs.rmSync's own maxRetries option does not reliably retry a
+// top-level EPERM in this scenario, so retry manually with a blocking wait
+// (this hook is the last thing standing between the test and the runner
+// reporting failure, so a synchronous wait here is acceptable).
+async function rmSyncWithRetry(targetPath, { retries = 15, delayMs = 500 } = {}) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      if (e.code !== 'EPERM' && e.code !== 'EBUSY') throw e;
+      if (attempt === retries) throw e;
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 before(async () => {
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-dash-http-'));
   fs.mkdirSync(path.join(tmpRoot, 'tests', 'e2e'), { recursive: true });
@@ -65,7 +87,12 @@ after(async () => {
       setTimeout(resolve, 3000);
     });
   }
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
+  // The 'POST /run' test spawns a real `npx playwright` process tree (via
+  // shell:true) rooted at tmpRoot; even after /stop + killing the server,
+  // that grandchild process tree can take several seconds to fully release
+  // its handle on tmpRoot as its cwd, which otherwise makes an immediate
+  // rmSync fail with EPERM on Windows.
+  await rmSyncWithRetry(tmpRoot);
 });
 
 test('GET / serves HTML with the real token substituted, not the placeholder', async () => {

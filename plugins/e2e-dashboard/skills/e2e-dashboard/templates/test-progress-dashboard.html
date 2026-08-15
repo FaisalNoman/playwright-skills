@@ -1100,6 +1100,7 @@ function renderContent() {
   let html = failureGroupsHTML();
 
   for (const file of filesToShow) {
+    html += sourcePanelHTML(file);
     const suite = s && s.suites[file];
     if (suite)               { html += suiteBlockHTML(file, suite); continue; }
     const titles = pendingTitles[file];
@@ -1108,6 +1109,43 @@ function renderContent() {
   }
 
   content.innerHTML = html;
+}
+
+function sourcePanelHTML(file) {
+  const short = file.split('/').pop();
+
+  if (editingFile === file) {
+    return `<div class="source-panel">
+      <div class="source-panel-header">
+        <span class="source-panel-title">✎ Editing ${h(short)}</span>
+        <div class="source-panel-actions">
+          <button class="btn-primary" data-save-source="${h(file)}" style="font-size:11px;padding:4px 10px">💾 Save</button>
+          <button class="btn-ghost" data-cancel-edit style="font-size:11px">✕ Cancel</button>
+        </div>
+      </div>
+      <textarea class="source-editor" spellcheck="false">${h(sourceCache[file] ?? '')}</textarea>
+    </div>`;
+  }
+
+  if (!sourceOpen.has(file)) {
+    return `<div class="source-panel-collapsed"><button class="btn-ghost" data-view-source="${h(file)}" style="font-size:11px">📄 View source</button></div>`;
+  }
+
+  const loaded = sourceCache[file];
+  if (loaded == null) {
+    return `<div class="source-panel-collapsed"><span class="no-steps">Loading source…</span></div>`;
+  }
+
+  return `<div class="source-panel">
+    <div class="source-panel-header">
+      <span class="source-panel-title">📄 ${h(short)}</span>
+      <div class="source-panel-actions">
+        <button class="btn-ghost" data-edit-source="${h(file)}" style="font-size:11px">✎ Edit</button>
+        <button class="btn-ghost" data-hide-source="${h(file)}" style="font-size:11px">▲ Hide</button>
+      </div>
+    </div>
+    <pre class="source-view">${h(loaded)}</pre>
+  </div>`;
 }
 
 function noRunYetHTML(file) {

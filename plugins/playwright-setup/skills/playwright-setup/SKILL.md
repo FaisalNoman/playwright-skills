@@ -188,6 +188,10 @@ export default defineConfig({
       args: process.env.PW_WIN_X != null ? [
         `--window-position=${process.env.PW_WIN_X},${process.env.PW_WIN_Y || '0'}`,
         `--window-size=${process.env.PW_WIN_W || '960'},${process.env.PW_WIN_H || '1080'}`,
+        // Windows treats a newly-launched automated Chromium window as
+        // "occluded" even though it's on top of nothing — Chrome then
+        // throttles/backgrounds it, which shows up as opening minimized.
+        '--disable-features=CalculateNativeWinOcclusion',
       ] : [],
     },
   },

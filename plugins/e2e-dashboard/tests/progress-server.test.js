@@ -1,5 +1,5 @@
 // plugins/e2e-dashboard/tests/progress-server.test.js
-const { test, before, after } = require('node:test');
+const { test, before, after, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -108,4 +108,62 @@ test('applyEvent begin: two overlapping runIds do not clobber each other\'s targ
   // This proves runId 'A' independently resolved to isTargeted:true and
   // runId 'B' independently resolved to isTargeted:false, with no
   // cross-contamination between the two overlapping runs.
+});
+
+const SECURITY_FIXTURE = path.join(__dirname, 'fixtures', 'security-example.spec.ts');
+
+describe('multi-category CATEGORIES support', () => {
+  let catRoot;
+
+  before(() => {
+    // Simulate what the e2e-dashboard installer writes for a two-category
+    // project: substitute the %%ADAPT_CATEGORIES%% line with a real
+    // multi-entry array, exactly as SKILL.md Phase 3 instructs, then require
+    // that adapted copy — this exercises the real installed code path
+    // instead of just the shipped single-category default.
+    catRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-dash-cat-'));
+    fs.mkdirSync(path.join(catRoot, 'tests', 'e2e'), { recursive: true });
+    fs.mkdirSync(path.join(catRoot, 'tests', 'security'), { recursive: true });
+    fs.mkdirSync(path.join(catRoot, 'tests', 'reporters'), { recursive: true });
+    fs.copyFileSync(FIXTURE_SPEC, path.join(catRoot, 'tests', 'e2e', 'example.spec.ts'));
+    fs.copyFileSync(SECURITY_FIXTURE, path.join(catRoot, 'tests', 'security', 'headers.spec.ts'));
+
+    const src = fs.readFileSync(TEMPLATE, 'utf8');
+    const adapted = src.replace(
+      /^const CATEGORIES.*%%ADAPT_CATEGORIES%%.*$/m,
+      `const CATEGORIES = [
+        { key: 'e2e',      label: 'E2E / Smoke', icon: '🧭', dir: path.join(ROOT, 'tests', 'e2e'),      prefix: 'tests/e2e' },
+        { key: 'security', label: 'Security',    icon: '🛡️', dir: path.join(ROOT, 'tests', 'security'), prefix: 'tests/security' },
+      ];`
+    );
+    assert.notEqual(adapted, src, 'the %%ADAPT_CATEGORIES%% marker line must exist for this substitution to work');
+    fs.writeFileSync(path.join(catRoot, 'tests', 'reporters', 'progress-server.js'), adapted);
+  });
+
+  after(() => {
+    fs.rmSync(catRoot, { recursive: true, force: true });
+  });
+
+  test('scanTestFiles finds files across every configured category dir', () => {
+    const mod = require(path.join(catRoot, 'tests', 'reporters', 'progress-server.js'));
+    assert.deepEqual(
+      mod.scanTestFiles().sort(),
+      ['tests/e2e/example.spec.ts', 'tests/security/headers.spec.ts'].sort()
+    );
+  });
+
+  test('isKnownSpecFile accepts a file inside a non-default category dir', () => {
+    const mod = require(path.join(catRoot, 'tests', 'reporters', 'progress-server.js'));
+    assert.equal(mod.isKnownSpecFile('tests/security/headers.spec.ts'), true);
+  });
+
+  test('isKnownSpecFile still rejects traversal outside every configured category dir', () => {
+    const mod = require(path.join(catRoot, 'tests', 'reporters', 'progress-server.js'));
+    assert.equal(mod.isKnownSpecFile('../../../etc/passwd.spec.ts'), false);
+  });
+
+  test('activeCategories only reports categories that actually contain a spec file', () => {
+    const mod = require(path.join(catRoot, 'tests', 'reporters', 'progress-server.js'));
+    assert.deepEqual(mod.activeCategories().map(c => c.key).sort(), ['e2e', 'security']);
+  });
 });

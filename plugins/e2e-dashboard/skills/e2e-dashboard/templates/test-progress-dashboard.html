@@ -833,7 +833,7 @@ function renderCategoryTabs() {
   el.classList.remove('hidden');
   let html = `<button class="cat-tab${activeCategory === null ? ' active' : ''}" data-cat="">All</button>`;
   for (const c of categories) {
-    html += `<button class="cat-tab${activeCategory === c.key ? ' active' : ''}" data-cat="${h(c.key)}">${c.icon} ${h(c.label)}</button>`;
+    html += `<button class="cat-tab${activeCategory === c.key ? ' active' : ''}" data-cat="${h(c.key)}">${h(c.icon)} ${h(c.label)}</button>`;
   }
   el.innerHTML = html;
 }
@@ -951,7 +951,7 @@ function renderSidebar() {
     const active = selectedFile === file;
     const fail   = st === 'failed';
     const cat    = categories.length > 1 && !activeCategory ? categoryOf(file) : null;
-    const icon   = cat ? `${cat.icon} ` : '';
+    const icon   = cat ? `${h(cat.icon)} ` : '';
     html += `<div class="suite-item${active ? ' active' : ''}${fail ? ' has-fail' : ''}" data-file="${h(file)}">
       <span class="suite-icon">${suiteIcon(st)}</span>
       <span class="suite-name" title="${h(file)}">${icon}${h(short)}</span>

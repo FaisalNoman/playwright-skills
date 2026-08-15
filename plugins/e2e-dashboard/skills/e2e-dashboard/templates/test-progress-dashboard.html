@@ -457,6 +457,8 @@ let compactMode    = false;
 let sortBy         = 'default';
 let testSearch     = '';
 let fgCollapsed    = false;
+let categories     = [];
+let activeCategory = null;
 
 // Restore persisted UI prefs
 if (localStorage.getItem('e2e-hint-dismissed') === '1') document.getElementById('hint-bar').classList.add('hidden');
@@ -464,6 +466,9 @@ if (localStorage.getItem('e2e-compact') === '1') { compactMode = true; document.
 
 // ── Global click delegation ───────────────────────────────────────────────────
 document.addEventListener('click', e => {
+  const catTab = e.target.closest('.cat-tab');
+  if (catTab) { selectCategory(catTab.dataset.cat || null); return; }
+
   const rfBtn = e.target.closest('[data-run-file]');
   if (rfBtn) { e.stopPropagation(); runFile(rfBtn.dataset.runFile); return; }
 
@@ -773,6 +778,14 @@ async function loadFiles() {
   } catch {}
 }
 
+async function loadCategories() {
+  try {
+    const r = await fetch(`${SERVER}/categories`);
+    categories = (await r.json()).categories || [];
+    render();
+  } catch {}
+}
+
 async function loadHistory() {
   try {
     const r = await fetch(`${SERVER}/history`);
@@ -868,6 +881,19 @@ function renderProgress() {
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 let sidebarFilter = '';
 function filterSidebar(v) { sidebarFilter = v.toLowerCase(); renderSidebar(); }
+
+function categoryOf(file) {
+  return categories.find(c => file.startsWith(c.prefix + '/'));
+}
+
+function selectCategory(key) {
+  activeCategory = key || null;
+  if (selectedFile && activeCategory) {
+    const cat = categories.find(c => c.key === activeCategory);
+    if (cat && !selectedFile.startsWith(cat.prefix + '/')) selectedFile = null;
+  }
+  render();
+}
 
 function mergedFiles() {
   const fromState = state
@@ -1230,6 +1256,7 @@ if (reportFile) {
   connect();
 }
 loadFiles();
+loadCategories();
 loadHistory();
 </script>
 </body>

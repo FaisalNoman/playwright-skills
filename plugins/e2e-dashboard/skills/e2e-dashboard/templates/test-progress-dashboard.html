@@ -802,10 +802,18 @@ async function loadSource(file) {
   if (sourceCache[file] != null) return;
   try {
     const r = await fetch(`${SERVER}/source?file=${encodeURIComponent(file)}`, { headers: { 'X-Dashboard-Token': DASHBOARD_TOKEN } });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      sourceOpen.delete(file);
+      alert('Could not load source: ' + (err.error || r.status) + (r.status === 401 ? '\n\nThe dashboard token may be stale — reload the page (the token changes every time the server restarts).' : ''));
+      return;
+    }
     const json = await r.json();
     sourceCache[file] = json.content ?? '';
   } catch {
-    sourceCache[file] = '';
+    sourceOpen.delete(file);
+    alert('Cannot reach progress server to load source.');
+    return;
   }
   render();
 }

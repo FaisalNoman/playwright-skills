@@ -75,7 +75,18 @@ After scanning, fill in any gaps with ONE focused message covering ALL open ques
 | 3 | **Auth** | Is login required? What credentials? How many roles? |
 | 4 | **Critical flows** | Top 3–5 user journeys that MUST be tested (e.g. "register → book → cancel") |
 | 5 | **Out of scope** | Any pages/flows explicitly NOT to test now |
-| 6 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`, and whether a `.github/workflows/e2e.yml` is generated in Phase 4) |
+| 6 | **Test categories** | Which test categories to scaffold — see "Test Categories" below |
+| 7 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`, and whether a `.github/workflows/e2e.yml` is generated in Phase 4) |
+
+### Test Categories
+
+Ask this as a dedicated multi-select question — use the `AskUserQuestion` tool with `multiSelect: true` — rather than folding it into the free-text interview message:
+
+- **E2E / Smoke** (default selected) — user-journey specs under `tests/e2e/`. This is what Phase 3/4 already produce and is the only category most projects need.
+- **Security-smoke** — `tests/security/` specs covering response security headers, an auth-bypass probe, and a reflected-input/XSS check. This is a lightweight smoke layer, **not a substitute for real penetration testing** — say so explicitly if the user's framing suggests they expect full pentest coverage.
+- **Performance-smoke** — `tests/perf/` specs asserting page-load timing budgets via the browser's Navigation Timing API. This is a lightweight smoke layer, **not a substitute for real load testing** (concurrent virtual users) — say so explicitly if the user's framing suggests they expect load-test coverage.
+
+Selecting more than one category changes `playwright.config.ts`'s `testDir` in Phase 4 and adds the corresponding spec-file sections to the Phase 3 plan and Phase 4 implementation.
 
 ### Optional (ask only if not inferable from code)
 

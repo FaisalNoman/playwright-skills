@@ -1,6 +1,6 @@
 ---
 name: e2e-dashboard
-description: Install real-time Playwright E2E test dashboard into any project. Streams live test progress via SSE with 23 features.
+description: Install real-time Playwright E2E test dashboard into any project. Streams live test progress via SSE with 24 features.
 ---
 
 # E2E Dashboard Installer
@@ -15,7 +15,7 @@ Three files wired into Playwright:
 | `{reporters_dir}/realtime-reporter.js` | Playwright custom reporter — POSTs events to server as tests run |
 | `{tests_dir}/test-progress-dashboard.html` | Single-page dashboard served at `http://localhost:7373` |
 
-**23 features**: live SSE stream · sidebar file filter · category tabs (auto-hidden when only one test category — E2E, Security, or Perf — is installed) · per-file/per-test run buttons · re-run failed · failures-only toggle · test name search · sort (default/failed-first/slowest) · describe-block nesting · flakiness badge (from run history) · ETA during run · screenshot thumbnails · Playwright Trace Viewer integration · copy error button · browser notifications · compact mode · keyboard shortcuts · auto-scroll to first failure · failure grouping by error pattern · video attachments · Markdown failure export · static CI-report mode · per-test run-history strip.
+**24 features**: live SSE stream · sidebar file filter · category tabs (auto-hidden when only one test category — E2E, Security, or Perf — is installed) · per-file/per-test run buttons · re-run failed · failures-only toggle · test name search · sort (default/failed-first/slowest) · describe-block nesting · flakiness badge (from run history) · ETA during run · screenshot thumbnails · Playwright Trace Viewer integration · copy error button · browser notifications · compact mode · keyboard shortcuts · auto-scroll to first failure · failure grouping by error pattern · video attachments · Markdown failure export · static CI-report mode · per-test run-history strip · inline spec source view + edit-and-save (writes back to disk via the same file whitelist /run uses).
 
 **Security model**: the server binds to `127.0.0.1` only (never reachable off the local machine), locks CORS to its own origin (no wildcard), and requires an `X-Dashboard-Token` header — generated at startup and printed to the console — on every state-changing route (`/run`, `/stop`, `/open-trace`, `/filetests`). The served dashboard HTML has the token injected automatically; nothing to configure. Set `E2E_DASHBOARD_TOKEN` to pin a fixed token (e.g. for scripted use), and `E2E_DASHBOARD_PORT` to pin a starting port (auto-falls-back by +1 up to 10 times if it's taken, so multiple projects' dashboards can run concurrently).
 
@@ -194,3 +194,5 @@ Report back:
 | Reporter not firing | Confirm the path in playwright.config exists and is relative to the config file location |
 | Screenshots/traces not loading | The `/serve` endpoint only serves files inside `test-results/` — confirm `outputDir` in playwright.config points there |
 | Category tabs not showing | By design when only one category dir has spec files — `GET /categories` returns a single entry and the tab row stays hidden. Add a second `tests/<category>/*.spec.ts` file (e.g. via `/playwright-setup` with Security-smoke or Perf-smoke selected) to see tabs appear. |
+| Edits not saving | Check the console for a "Save failed" alert with the server's error message — usually a permissions issue on the file, or the file was deleted/moved after the panel loaded. |
+| Saved content looks wrong after re-opening | The save is a full-file overwrite with no conflict detection — if the file was also edited outside the dashboard (IDE, git) between load and save, the dashboard's version wins. Re-open (📄 View source) before editing if you suspect the file changed elsewhere. |

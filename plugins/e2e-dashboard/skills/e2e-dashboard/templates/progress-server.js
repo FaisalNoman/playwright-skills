@@ -157,6 +157,35 @@ function readBody(req) {
 // Logs to test-results/.focus-debug.log so a failure is diagnosable without
 // another guess-and-check round. We poll briefly because the Chromium
 // window doesn't exist yet at spawn time — it can take a second or two.
+// Computes window positions for N simultaneous Interactive-mode browser
+// windows, tiled within the same right-two-thirds screen region the
+// single-browser case has always used. count<=1 reproduces that exact
+// region unchanged (backward compatible); 2 splits it in half; 3+ tiles a
+// 2x2 grid, capped at 4 distinct slots — a 5th+ browser reuses slot 4
+// rather than growing the grid further (rare case, not worth more math).
+function computeTileLayout(count) {
+  const half = Math.floor(SCREEN_W / 3);
+  const regionX = half, regionY = 0, regionW = SCREEN_W - half, regionH = SCREEN_H;
+  if (count <= 1) return [{ x: regionX, y: regionY, w: regionW, h: regionH }];
+  if (count === 2) {
+    const w = Math.floor(regionW / 2);
+    return [
+      { x: regionX,     y: regionY, w,               h: regionH },
+      { x: regionX + w, y: regionY, w: regionW - w,   h: regionH },
+    ];
+  }
+  const w = Math.floor(regionW / 2), h = Math.floor(regionH / 2);
+  const slots = [
+    { x: regionX,     y: regionY,     w,             h },
+    { x: regionX + w, y: regionY,     w: regionW - w, h },
+    { x: regionX,     y: regionY + h, w,             h: regionH - h },
+    { x: regionX + w, y: regionY + h, w: regionW - w, h: regionH - h },
+  ];
+  const layout = [];
+  for (let i = 0; i < count; i++) layout.push(slots[Math.min(i, 3)]);
+  return layout;
+}
+
 function focusInteractiveBrowser(rootPid) {
   if (process.platform !== 'win32') return;
   const logPath = path.join(ROOT, 'test-results', '.focus-debug.log');
@@ -523,11 +552,17 @@ const server = http.createServer(async (req, res) => {
     if (skipSeed) env.SKIP_GLOBAL_SETUP = 'true'; // Remove if no globalSetup
     if (mode === 'interactive' && slowMo > 0) env.PLAYWRIGHT_SLOW_MO = String(slowMo);
     if (mode === 'interactive') {
-      const half = Math.floor(SCREEN_W / 3);
-      env.PW_WIN_X = String(half);
-      env.PW_WIN_Y = '0';
-      env.PW_WIN_W = String(SCREEN_W - half);
-      env.PW_WIN_H = String(SCREEN_H);
+      const layout = computeTileLayout(selectedBrowsers.length);
+      const first = layout[0];
+      // Legacy single-window vars — kept for backward compatibility with any
+      // already-generated playwright.config.ts that only reads PW_WIN_X directly.
+      env.PW_WIN_X = String(first.x);
+      env.PW_WIN_Y = String(first.y);
+      env.PW_WIN_W = String(first.w);
+      env.PW_WIN_H = String(first.h);
+      // New multi-window var — a config generated with 2+ projects reads its
+      // own slot by project index; a single-project config ignores this entirely.
+      env.PW_WIN_LAYOUT = JSON.stringify(layout);
     }
 
     console.log(`[progress-server] Spawning: npx ${args.join(' ')}`);
@@ -730,4 +765,5 @@ module.exports = {
   TOKEN, HOST, scanTestFiles, checkToken,
   isKnownSpecFile, isKnownSpecFileArg, hasShellMetachars,
   pendingRuns, activeCategories, CATEGORIES, BROWSERS,
+  computeTileLayout,
 };

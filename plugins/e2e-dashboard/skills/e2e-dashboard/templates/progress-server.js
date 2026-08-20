@@ -24,6 +24,7 @@ const PORT_ATTEMPTS = 10;
 const ROOT          = path.join(__dirname, '..', '..'); // %%ADAPT_ROOT%%
 const HTML_PATH     = path.join(__dirname, '..', 'test-progress-dashboard.html'); // %%ADAPT_HTML_PATH%%
 const CATEGORIES    = [ { key: 'e2e', label: 'E2E / Smoke', icon: '🧭', dir: path.join(ROOT, 'tests', 'e2e'), prefix: 'tests/e2e' } ]; // %%ADAPT_CATEGORIES%%
+const BROWSERS      = [ { key: 'chromium', label: 'Chromium', icon: '🧭' } ]; // %%ADAPT_BROWSERS%%
 const SPEC_EXT      = '.spec.ts'; // %%ADAPT_SPEC_EXT%%
 const HISTORY_FILE  = path.join(ROOT, 'test-results', '.run-history.json');
 const TOKEN         = process.env.E2E_DASHBOARD_TOKEN || crypto.randomBytes(16).toString('hex');
@@ -303,6 +304,13 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/categories') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ categories: activeCategories() }));
+    return;
+  }
+
+  // ── GET /browsers ────────────────────────────────────────────────────
+  if (req.method === 'GET' && req.url === '/browsers') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ browsers: BROWSERS }));
     return;
   }
 
@@ -707,5 +715,5 @@ module.exports = {
   server, state, resetRunState, applyEvent, safeArtifactPath,
   TOKEN, HOST, scanTestFiles, checkToken,
   isKnownSpecFile, isKnownSpecFileArg, hasShellMetachars,
-  pendingRuns, activeCategories, CATEGORIES,
+  pendingRuns, activeCategories, CATEGORIES, BROWSERS,
 };

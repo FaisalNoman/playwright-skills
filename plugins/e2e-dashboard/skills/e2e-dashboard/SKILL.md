@@ -1,6 +1,6 @@
 ---
 name: e2e-dashboard
-description: Install real-time Playwright E2E test dashboard into any project. Streams live test progress via SSE with 24 features.
+description: Install real-time Playwright E2E test dashboard into any project. Streams live test progress via SSE with 25 features.
 ---
 
 # E2E Dashboard Installer
@@ -15,7 +15,7 @@ Three files wired into Playwright:
 | `{reporters_dir}/realtime-reporter.js` | Playwright custom reporter — POSTs events to server as tests run |
 | `{tests_dir}/test-progress-dashboard.html` | Single-page dashboard served at `http://localhost:7373` |
 
-**24 features**: live SSE stream · sidebar file filter · category tabs (auto-hidden when only one test category — E2E, Security, or Perf — is installed) · per-file/per-test run buttons · re-run failed · failures-only toggle · test name search · sort (default/failed-first/slowest) · describe-block nesting · flakiness badge (from run history) · ETA during run · screenshot thumbnails · Playwright Trace Viewer integration · copy error button · browser notifications · compact mode · keyboard shortcuts · auto-scroll to first failure · failure grouping by error pattern · video attachments · Markdown failure export · static CI-report mode · per-test run-history strip · inline spec source view + edit-and-save (writes back to disk via the same file whitelist /run uses).
+**25 features**: live SSE stream · sidebar file filter · category tabs (auto-hidden when only one test category — E2E, Security, or Perf — is installed) · per-file/per-test run buttons · re-run failed · failures-only toggle · test name search · sort (default/failed-first/slowest) · describe-block nesting · flakiness badge (from run history) · ETA during run · screenshot thumbnails · Playwright Trace Viewer integration · copy error button · browser notifications · compact mode · keyboard shortcuts · auto-scroll to first failure · failure grouping by error pattern · video attachments · Markdown failure export · static CI-report mode · per-test run-history strip · inline spec source view + edit-and-save (writes back to disk via the same file whitelist /run uses) · browser selector (multi-select, auto-hidden when only one browser is configured) with grouped per-test results and a per-browser pass/fail summary strip.
 
 **Security model**: the server binds to `127.0.0.1` only (never reachable off the local machine), locks CORS to its own origin (no wildcard), and requires an `X-Dashboard-Token` header — generated at startup and printed to the console — on every state-changing route (`/run`, `/stop`, `/open-trace`, `/filetests`). The served dashboard HTML has the token injected automatically; nothing to configure. Set `E2E_DASHBOARD_TOKEN` to pin a fixed token (e.g. for scripted use), and `E2E_DASHBOARD_PORT` to pin a starting port (auto-falls-back by +1 up to 10 times if it's taken, so multiple projects' dashboards can run concurrently).
 
@@ -30,6 +30,7 @@ Before writing any files, find these values. Use `Glob` and `Read` to check the 
 | `project_root` | Directory containing `playwright.config.ts` or `playwright.config.js` | cwd |
 | `e2e_dir` | Directory where `*.spec.ts` / `*.spec.js` files live | `{root}/tests/e2e` |
 | `category_dirs` | Sibling directories of `e2e_dir`'s parent (`{root}/tests/*/`) that contain `*{spec_ext}` files — use Glob `tests/*/*.spec.ts` (or `.js`) | just `e2e` if none found — no behavior change for existing single-category projects |
+| `browser_targets` | Playwright projects configured in `playwright.config.ts`'s `projects[]` array — ask the user directly (same as `category_dirs`) rather than parsing the TS config file | just `chromium` if the project only has one (or wasn't generated with multiple) — no behavior change for existing single-browser projects |
 | `reporters_dir` | Where to place server + reporter | `{root}/tests/reporters` |
 | `html_dest` | Where to place dashboard HTML | `{root}/tests/test-progress-dashboard.html` |
 | `spec_ext` | File extension of test specs | `.spec.ts` |
@@ -79,6 +80,7 @@ The template has `%%ADAPT_*%%` comment markers. Replace the **entire line** cont
 | `%%ADAPT_ROOT%%` | `const ROOT = path.join(__dirname, ROOT_FROM_REPORTERS);` |
 | `%%ADAPT_HTML_PATH%%` | `const HTML_PATH = path.join(__dirname, HTML_FROM_REPORTERS);` |
 | `%%ADAPT_CATEGORIES%%` | `const CATEGORIES = [ ... ];` — one object per detected category dir, see below |
+| `%%ADAPT_BROWSERS%%` | `const BROWSERS = [ ... ];` — one object per detected `browser_targets` entry, see below |
 | `%%ADAPT_SPEC_EXT%%` | `const SPEC_EXT = 'SPEC_EXT';` |
 
 ### Building the `CATEGORIES` array
@@ -112,6 +114,35 @@ For a single-category project, keep the shipped default (one `e2e` entry) unchan
 
 Example for a project where reporters are at `e2e/support/reporters/` (3 levels deep):
 - `%%ADAPT_ROOT%%` → `const ROOT = path.join(__dirname, '..', '..', '..');`
+
+### Building the `BROWSERS` array
+
+Each detected `browser_targets` entry becomes one object:
+
+```js
+{ key: 'chromium', label: 'Chromium', icon: '🧭' }
+```
+
+`key` must exactly match that project's `name` in `playwright.config.ts`'s `projects[]` array — this is what gets passed as `--project=<key>` when the dashboard runs it. `key` must also be space-free — it becomes a literal `--project` CLI argument passed through a shell-mode spawn, and a value containing a space will be incorrectly split by the shell.
+
+| Project name | `label` | `icon` |
+|---|---|---|
+| `chromium` | `Chromium` | `🧭` |
+| `firefox` | `Firefox` | `🦊` |
+| `webkit` | `WebKit` | `🧭` (Safari-style compass, no distinct emoji) |
+| Mobile-profile projects (e.g. `mobile-chrome`, `mobile-safari`) | Title-cased display name (e.g. `Mobile Chrome`) — the `key` itself must stay the space-free project name, never the display label | `📱` |
+
+Example for a project with all three desktop engines:
+
+```js
+const BROWSERS = [
+  { key: 'chromium', label: 'Chromium', icon: '🧭' },
+  { key: 'firefox',  label: 'Firefox',  icon: '🦊' },
+  { key: 'webkit',   label: 'WebKit',   icon: '🧭' },
+];
+```
+
+For a single-browser project, keep the shipped default (one `chromium` entry) unchanged.
 
 ### No-DB-seed adaptation
 
@@ -196,3 +227,5 @@ Report back:
 | Category tabs not showing | By design when only one category dir has spec files — `GET /categories` returns a single entry and the tab row stays hidden. Add a second `tests/<category>/*.spec.ts` file (e.g. via `/playwright-setup` with Security-smoke or Perf-smoke selected) to see tabs appear. |
 | Edits not saving | Check the console for a "Save failed" alert with the server's error message — usually a permissions issue on the file, or the file was deleted/moved after the panel loaded. |
 | Saved content looks wrong after re-opening | The save is a full-file overwrite with no conflict detection — if the file was also edited outside the dashboard (IDE, git) between load and save, the dashboard's version wins. Re-open (📄 View source) before editing if you suspect the file changed elsewhere. |
+| Browser dropdown not showing | By design when only one browser is configured — `GET /browsers` returns a single entry and the dropdown stays hidden. Configure a second browser target via `/playwright-setup` to see it appear. |
+| Interactive-mode windows overlapping | Confirm `playwright.config.ts` was regenerated with the per-project `windowArgsForProject()` helper — an older single-project config only reads the legacy `PW_WIN_X` vars and positions every window identically. |

@@ -76,7 +76,8 @@ After scanning, fill in any gaps with ONE focused message covering ALL open ques
 | 4 | **Critical flows** | Top 3–5 user journeys that MUST be tested (e.g. "register → book → cancel") |
 | 5 | **Out of scope** | Any pages/flows explicitly NOT to test now |
 | 6 | **Test categories** | Which test categories to scaffold — see "Test Categories" below |
-| 7 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`, and whether a `.github/workflows/e2e.yml` is generated in Phase 4) |
+| 7 | **Browser targets** | Which browsers/device profiles to configure as Playwright projects — see "Browser Targets" below |
+| 8 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`, and whether a `.github/workflows/e2e.yml` is generated in Phase 4) |
 
 ### Test Categories
 
@@ -88,11 +89,22 @@ Ask this as a dedicated multi-select question — use the `AskUserQuestion` tool
 
 Selecting more than one category changes `playwright.config.ts`'s `testDir` in Phase 4 and adds the corresponding spec-file sections to the Phase 3 plan and Phase 4 implementation.
 
+### Browser Targets
+
+Ask this as a dedicated multi-select question — use the `AskUserQuestion` tool with `multiSelect: true` — same pattern as Test Categories:
+
+- **Chromium** (default selected) — `devices['Desktop Chrome']`. Covers most projects' needs alone.
+- **Firefox** — `devices['Desktop Firefox']`.
+- **WebKit** — `devices['Desktop Safari']`.
+- **Mobile Chrome** — `devices['Pixel 5']`. Generated project `name` must be the space-free slug `mobile-chrome` (not the display label) — Playwright project names flow through as literal `--project` CLI args, and a name containing a space breaks under the dashboard server's shell-mode process spawn.
+- **Mobile Safari** — `devices['iPhone 13']`. Generated project `name` must be the space-free slug `mobile-safari`, same reasoning.
+
+Selecting more than one target changes Phase 4's `playwright.config.ts` generation: each selection becomes its own `projects[]` entry, and the shared `use.launchOptions` block is replaced by a per-project window-tiling override (see Phase 4 below) — the single-Chromium case is unaffected and generates exactly what it does today.
+
 ### Optional (ask only if not inferable from code)
 
 - DB/seed setup required before tests? (`globalSetup`)
 - Test data strategy: fixtures, factories, or live DB?
-- Browser targets: Chromium only, or also Firefox/Safari?
 - Mobile viewports needed?
 - Any existing test files to follow as style guide?
 - Should Page Object Model pattern be used?
@@ -214,6 +226,71 @@ export default defineConfig({
 ```
 
 Adapt: remove `globalSetup` if not needed, add multiple projects if multiple baseURLs exist, fill in actual commands from package.json, substitute `FULLY_PARALLEL`/`WORKERS` from the Phase 2 answer (default `false`/`2` if the user had no preference and state-sharing signals were ambiguous).
+
+### `projects[]` when multiple browser targets were selected in Phase 2
+
+**Single target (Chromium only, the default):** keep the `projects` array and shared `use.launchOptions` exactly as shown above — unchanged from today.
+
+**Two or more targets:** generate one `projects[]` entry per selection, using the matching `devices[...]` preset, and replace the single shared `use.launchOptions` with a per-project index-based window-tiling override:
+
+```typescript
+import { defineConfig, devices } from '@playwright/test';
+
+function windowArgsForProject(index: number) {
+  if (process.env.PW_WIN_LAYOUT) {
+    try {
+      const layout = JSON.parse(process.env.PW_WIN_LAYOUT);
+      const slot = layout[index] || layout[layout.length - 1];
+      if (slot) {
+        return [
+          `--window-position=${slot.x},${slot.y}`,
+          `--window-size=${slot.w},${slot.h}`,
+          '--disable-features=CalculateNativeWinOcclusion',
+        ];
+      }
+    } catch {}
+  }
+  return process.env.PW_WIN_X != null ? [
+    `--window-position=${process.env.PW_WIN_X},${process.env.PW_WIN_Y || '0'}`,
+    `--window-size=${process.env.PW_WIN_W || '960'},${process.env.PW_WIN_H || '1080'}`,
+    '--disable-features=CalculateNativeWinOcclusion',
+  ] : [];
+}
+
+export default defineConfig({
+  // ...same top-level config as the single-target case (testDir, reporter, use.trace, etc.)...
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'], baseURL: 'http://localhost:PORT',
+        launchOptions: { slowMo: parseInt(process.env.PLAYWRIGHT_SLOW_MO || '0', 10), args: windowArgsForProject(0) },
+      },
+    },
+    {
+      name: 'firefox',
+      use: {
+        ...devices['Desktop Firefox'], baseURL: 'http://localhost:PORT',
+        launchOptions: { slowMo: parseInt(process.env.PLAYWRIGHT_SLOW_MO || '0', 10), args: windowArgsForProject(1) },
+      },
+    },
+    // one entry per selected target, index matching array position (0, 1, 2, ...)
+  ],
+  // ...webServer unchanged...
+});
+```
+
+The mapping from Phase 2 selections to `devices[...]` presets:
+
+| Selection | Project `name` | `devices[...]` preset |
+|---|---|---|
+| Chromium | `chromium` | `devices['Desktop Chrome']` |
+| Firefox | `firefox` | `devices['Desktop Firefox']` |
+| WebKit | `webkit` | `devices['Desktop Safari']` |
+| Mobile Chrome | `mobile-chrome` | `devices['Pixel 5']` |
+| Mobile Safari | `mobile-safari` | `devices['iPhone 13']` |
+
+`windowArgsForProject`'s `index` argument is that project's fixed position in the `projects[]` array (0-based) — must match the order the browsers appear in the array, since `progress-server.js`'s `PW_WIN_LAYOUT` array is ordered the same way the `--project` flags were passed on the command line, which itself follows the dashboard's selection order.
 
 `testDir` depends on how many categories were selected in Phase 2:
 - **Single category (E2E only, the default):** `testDir: './tests/e2e'` — unchanged from today.

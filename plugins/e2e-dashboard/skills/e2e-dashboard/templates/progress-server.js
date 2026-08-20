@@ -24,6 +24,7 @@ const PORT_ATTEMPTS = 10;
 const ROOT          = path.join(__dirname, '..', '..'); // %%ADAPT_ROOT%%
 const HTML_PATH     = path.join(__dirname, '..', 'test-progress-dashboard.html'); // %%ADAPT_HTML_PATH%%
 const CATEGORIES    = [ { key: 'e2e', label: 'E2E / Smoke', icon: '🧭', dir: path.join(ROOT, 'tests', 'e2e'), prefix: 'tests/e2e' } ]; // %%ADAPT_CATEGORIES%%
+const BROWSERS      = [ { key: 'chromium', label: 'Chromium', icon: '🧭' } ]; // %%ADAPT_BROWSERS%%
 const SPEC_EXT      = '.spec.ts'; // %%ADAPT_SPEC_EXT%%
 const HISTORY_FILE  = path.join(ROOT, 'test-results', '.run-history.json');
 const TOKEN         = process.env.E2E_DASHBOARD_TOKEN || crypto.randomBytes(16).toString('hex');
@@ -156,6 +157,35 @@ function readBody(req) {
 // Logs to test-results/.focus-debug.log so a failure is diagnosable without
 // another guess-and-check round. We poll briefly because the Chromium
 // window doesn't exist yet at spawn time — it can take a second or two.
+// Computes window positions for N simultaneous Interactive-mode browser
+// windows, tiled within the same right-two-thirds screen region the
+// single-browser case has always used. count<=1 reproduces that exact
+// region unchanged (backward compatible); 2 splits it in half; 3+ tiles a
+// 2x2 grid, capped at 4 distinct slots — a 5th+ browser reuses slot 4
+// rather than growing the grid further (rare case, not worth more math).
+function computeTileLayout(count) {
+  const half = Math.floor(SCREEN_W / 3);
+  const regionX = half, regionY = 0, regionW = SCREEN_W - half, regionH = SCREEN_H;
+  if (count <= 1) return [{ x: regionX, y: regionY, w: regionW, h: regionH }];
+  if (count === 2) {
+    const w = Math.floor(regionW / 2);
+    return [
+      { x: regionX,     y: regionY, w,               h: regionH },
+      { x: regionX + w, y: regionY, w: regionW - w,   h: regionH },
+    ];
+  }
+  const w = Math.floor(regionW / 2), h = Math.floor(regionH / 2);
+  const slots = [
+    { x: regionX,     y: regionY,     w,             h },
+    { x: regionX + w, y: regionY,     w: regionW - w, h },
+    { x: regionX,     y: regionY + h, w,             h: regionH - h },
+    { x: regionX + w, y: regionY + h, w: regionW - w, h: regionH - h },
+  ];
+  const layout = [];
+  for (let i = 0; i < count; i++) layout.push(slots[Math.min(i, 3)]);
+  return layout;
+}
+
 function focusInteractiveBrowser(rootPid) {
   if (process.platform !== 'win32') return;
   const logPath = path.join(ROOT, 'test-results', '.focus-debug.log');
@@ -303,6 +333,13 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/categories') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ categories: activeCategories() }));
+    return;
+  }
+
+  // ── GET /browsers ────────────────────────────────────────────────────
+  if (req.method === 'GET' && req.url === '/browsers') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ browsers: BROWSERS }));
     return;
   }
 
@@ -455,7 +492,15 @@ const server = http.createServer(async (req, res) => {
     let params = {};
     try { params = JSON.parse(body); } catch {}
 
-    const { file, grep, mode = 'background', slowMo = 0, skipSeed = false } = params;
+    const { file, grep, mode = 'background', slowMo = 0, skipSeed = false, browsers } = params;
+
+    const allBrowserKeys = BROWSERS.map(b => b.key);
+    let selectedBrowsers = Array.isArray(browsers) && browsers.length > 0 ? browsers : allBrowserKeys;
+    if (!selectedBrowsers.every(b => typeof b === 'string' && allBrowserKeys.includes(b))) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unknown browser in selection' }));
+      return;
+    }
 
     if (file != null && typeof file !== 'string') {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -497,6 +542,7 @@ const server = http.createServer(async (req, res) => {
     const args = ['playwright', 'test'];
     if (file) args.push(file);
     if (grep) args.push('--grep', grep);
+    for (const b of selectedBrowsers) args.push('--project', b);
     if (mode === 'interactive') args.push('--headed');
 
     const env = { ...process.env, E2E_RUN_ID: runId };
@@ -506,11 +552,17 @@ const server = http.createServer(async (req, res) => {
     if (skipSeed) env.SKIP_GLOBAL_SETUP = 'true'; // Remove if no globalSetup
     if (mode === 'interactive' && slowMo > 0) env.PLAYWRIGHT_SLOW_MO = String(slowMo);
     if (mode === 'interactive') {
-      const half = Math.floor(SCREEN_W / 3);
-      env.PW_WIN_X = String(half);
-      env.PW_WIN_Y = '0';
-      env.PW_WIN_W = String(SCREEN_W - half);
-      env.PW_WIN_H = String(SCREEN_H);
+      const layout = computeTileLayout(selectedBrowsers.length);
+      const first = layout[0];
+      // Legacy single-window vars — kept for backward compatibility with any
+      // already-generated playwright.config.ts that only reads PW_WIN_X directly.
+      env.PW_WIN_X = String(first.x);
+      env.PW_WIN_Y = String(first.y);
+      env.PW_WIN_W = String(first.w);
+      env.PW_WIN_H = String(first.h);
+      // New multi-window var — a config generated with 2+ projects reads its
+      // own slot by project index; a single-project config ignores this entirely.
+      env.PW_WIN_LAYOUT = JSON.stringify(layout);
     }
 
     console.log(`[progress-server] Spawning: npx ${args.join(' ')}`);
@@ -566,10 +618,11 @@ function stateFromPlaywrightJson(json) {
     const file = filePath || suite.file || '';
     for (const spec of suite.specs || []) {
       for (const t of spec.tests || []) {
-        const id = `${file}::${spec.title}`;
+        const browser = t.projectName || '';
+        const id = `${browser}::${file}::${spec.title}`;
         const result = t.results?.[t.results.length - 1] || {};
         const status = result.status || 'skipped';
-        s.tests[id] = { id, title: spec.title, file, line: spec.line || null, describes: [], status, duration: result.duration ?? null, error: result.error ? { message: result.error.message } : null, attachments: result.attachments || [], retry: t.results ? t.results.length - 1 : 0 };
+        s.tests[id] = { id, title: spec.title, file, line: spec.line || null, describes: [], browser, status, duration: result.duration ?? null, error: result.error ? { message: result.error.message } : null, attachments: result.attachments || [], retry: t.results ? t.results.length - 1 : 0 };
         if (!s.suites[file]) s.suites[file] = { file, tests: [] };
         s.suites[file].tests.push(id);
         s.total++;
@@ -613,34 +666,36 @@ function applyEvent(event) {
       break;
     }
     case 'testBegin': {
-      const { id, title, file, line, describes = [] } = event;
-      if (state.tests[id]) {
-        const prev = state.tests[id].status;
+      const { id, title, file, line, describes = [], browser = '' } = event;
+      const key = `${browser}::${id}`;
+      if (state.tests[key]) {
+        const prev = state.tests[key].status;
         if (prev === 'passed')                              state.passed  = Math.max(0, state.passed  - 1);
         else if (prev === 'failed' || prev === 'timedOut') state.failed  = Math.max(0, state.failed  - 1);
         else if (prev === 'skipped')                       state.skipped = Math.max(0, state.skipped - 1);
-        state.tests[id].status   = 'running';
-        state.tests[id].describes = describes;
-        state.steps[id] = [];
+        state.tests[key].status   = 'running';
+        state.tests[key].describes = describes;
+        state.steps[key] = [];
       } else {
-        state.tests[id] = { id, title, file, line: line || null, describes, status: 'running', duration: null, error: null, attachments: [], retry: 0 };
-        state.steps[id] = [];
+        state.tests[key] = { id: key, title, file, line: line || null, describes, browser, status: 'running', duration: null, error: null, attachments: [], retry: 0 };
+        state.steps[key] = [];
         if (!state.suites[file]) state.suites[file] = { file, tests: [] };
-        if (!state.suites[file].tests.includes(id)) state.suites[file].tests.push(id);
+        if (!state.suites[file].tests.includes(key)) state.suites[file].tests.push(key);
         state.total = Math.max(state.total, Object.keys(state.tests).length);
       }
       state.running++;
       break;
     }
     case 'testEnd': {
-      const { id, status, duration, error, attachments = [], retry = 0 } = event;
-      if (state.tests[id]) {
-        const prev = state.tests[id].status;
-        state.tests[id].status      = status;
-        state.tests[id].duration    = duration;
-        state.tests[id].error       = error || null;
-        state.tests[id].attachments = attachments;
-        state.tests[id].retry       = retry;
+      const { id, status, duration, error, attachments = [], retry = 0, browser = '' } = event;
+      const key = `${browser}::${id}`;
+      if (state.tests[key]) {
+        const prev = state.tests[key].status;
+        state.tests[key].status      = status;
+        state.tests[key].duration    = duration;
+        state.tests[key].error       = error || null;
+        state.tests[key].attachments = attachments;
+        state.tests[key].retry       = retry;
         if (prev === 'running') state.running = Math.max(0, state.running - 1);
       }
       if (status === 'passed')                              state.passed++;
@@ -649,16 +704,18 @@ function applyEvent(event) {
       break;
     }
     case 'stepBegin': {
-      const { id, title, category } = event;
-      if (!state.steps[id]) state.steps[id] = [];
-      if (state.steps[id].length >= 60) state.steps[id].shift();
-      state.steps[id].push({ title, category, status: 'running' });
+      const { id, title, category, browser = '' } = event;
+      const key = `${browser}::${id}`;
+      if (!state.steps[key]) state.steps[key] = [];
+      if (state.steps[key].length >= 60) state.steps[key].shift();
+      state.steps[key].push({ title, category, status: 'running' });
       break;
     }
     case 'stepEnd': {
-      const { id, title, error } = event;
-      if (state.steps[id]) {
-        const step = [...state.steps[id]].reverse().find(s => s.title === title && s.status === 'running');
+      const { id, title, error, browser = '' } = event;
+      const key = `${browser}::${id}`;
+      if (state.steps[key]) {
+        const step = [...state.steps[key]].reverse().find(s => s.title === title && s.status === 'running');
         if (step) step.status = error ? 'failed' : 'done';
       }
       break;
@@ -707,5 +764,6 @@ module.exports = {
   server, state, resetRunState, applyEvent, safeArtifactPath,
   TOKEN, HOST, scanTestFiles, checkToken,
   isKnownSpecFile, isKnownSpecFileArg, hasShellMetachars,
-  pendingRuns, activeCategories, CATEGORIES,
+  pendingRuns, activeCategories, CATEGORIES, BROWSERS,
+  computeTileLayout,
 };

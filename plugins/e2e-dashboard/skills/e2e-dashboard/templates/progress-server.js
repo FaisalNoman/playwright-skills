@@ -574,10 +574,11 @@ function stateFromPlaywrightJson(json) {
     const file = filePath || suite.file || '';
     for (const spec of suite.specs || []) {
       for (const t of spec.tests || []) {
-        const id = `${file}::${spec.title}`;
+        const browser = t.projectName || '';
+        const id = `${browser}::${file}::${spec.title}`;
         const result = t.results?.[t.results.length - 1] || {};
         const status = result.status || 'skipped';
-        s.tests[id] = { id, title: spec.title, file, line: spec.line || null, describes: [], status, duration: result.duration ?? null, error: result.error ? { message: result.error.message } : null, attachments: result.attachments || [], retry: t.results ? t.results.length - 1 : 0 };
+        s.tests[id] = { id, title: spec.title, file, line: spec.line || null, describes: [], browser, status, duration: result.duration ?? null, error: result.error ? { message: result.error.message } : null, attachments: result.attachments || [], retry: t.results ? t.results.length - 1 : 0 };
         if (!s.suites[file]) s.suites[file] = { file, tests: [] };
         s.suites[file].tests.push(id);
         s.total++;
@@ -621,34 +622,36 @@ function applyEvent(event) {
       break;
     }
     case 'testBegin': {
-      const { id, title, file, line, describes = [] } = event;
-      if (state.tests[id]) {
-        const prev = state.tests[id].status;
+      const { id, title, file, line, describes = [], browser = '' } = event;
+      const key = `${browser}::${id}`;
+      if (state.tests[key]) {
+        const prev = state.tests[key].status;
         if (prev === 'passed')                              state.passed  = Math.max(0, state.passed  - 1);
         else if (prev === 'failed' || prev === 'timedOut') state.failed  = Math.max(0, state.failed  - 1);
         else if (prev === 'skipped')                       state.skipped = Math.max(0, state.skipped - 1);
-        state.tests[id].status   = 'running';
-        state.tests[id].describes = describes;
-        state.steps[id] = [];
+        state.tests[key].status   = 'running';
+        state.tests[key].describes = describes;
+        state.steps[key] = [];
       } else {
-        state.tests[id] = { id, title, file, line: line || null, describes, status: 'running', duration: null, error: null, attachments: [], retry: 0 };
-        state.steps[id] = [];
+        state.tests[key] = { id: key, title, file, line: line || null, describes, browser, status: 'running', duration: null, error: null, attachments: [], retry: 0 };
+        state.steps[key] = [];
         if (!state.suites[file]) state.suites[file] = { file, tests: [] };
-        if (!state.suites[file].tests.includes(id)) state.suites[file].tests.push(id);
+        if (!state.suites[file].tests.includes(key)) state.suites[file].tests.push(key);
         state.total = Math.max(state.total, Object.keys(state.tests).length);
       }
       state.running++;
       break;
     }
     case 'testEnd': {
-      const { id, status, duration, error, attachments = [], retry = 0 } = event;
-      if (state.tests[id]) {
-        const prev = state.tests[id].status;
-        state.tests[id].status      = status;
-        state.tests[id].duration    = duration;
-        state.tests[id].error       = error || null;
-        state.tests[id].attachments = attachments;
-        state.tests[id].retry       = retry;
+      const { id, status, duration, error, attachments = [], retry = 0, browser = '' } = event;
+      const key = `${browser}::${id}`;
+      if (state.tests[key]) {
+        const prev = state.tests[key].status;
+        state.tests[key].status      = status;
+        state.tests[key].duration    = duration;
+        state.tests[key].error       = error || null;
+        state.tests[key].attachments = attachments;
+        state.tests[key].retry       = retry;
         if (prev === 'running') state.running = Math.max(0, state.running - 1);
       }
       if (status === 'passed')                              state.passed++;
@@ -657,16 +660,18 @@ function applyEvent(event) {
       break;
     }
     case 'stepBegin': {
-      const { id, title, category } = event;
-      if (!state.steps[id]) state.steps[id] = [];
-      if (state.steps[id].length >= 60) state.steps[id].shift();
-      state.steps[id].push({ title, category, status: 'running' });
+      const { id, title, category, browser = '' } = event;
+      const key = `${browser}::${id}`;
+      if (!state.steps[key]) state.steps[key] = [];
+      if (state.steps[key].length >= 60) state.steps[key].shift();
+      state.steps[key].push({ title, category, status: 'running' });
       break;
     }
     case 'stepEnd': {
-      const { id, title, error } = event;
-      if (state.steps[id]) {
-        const step = [...state.steps[id]].reverse().find(s => s.title === title && s.status === 'running');
+      const { id, title, error, browser = '' } = event;
+      const key = `${browser}::${id}`;
+      if (state.steps[key]) {
+        const step = [...state.steps[key]].reverse().find(s => s.title === title && s.status === 'running');
         if (step) step.status = error ? 'failed' : 'done';
       }
       break;

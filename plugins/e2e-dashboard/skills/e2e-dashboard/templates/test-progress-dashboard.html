@@ -1273,7 +1273,7 @@ function suiteBlockHTML(file, suite) {
   let rows = '';
   for (const grp of groups) {
     if (grp.label) rows += `<div class="describe-header">${h(grp.label)}</div>`;
-    for (const t of grp.tests) rows += testRowHTML(t, file, s);
+    for (const g of groupTestsForDisplay(grp.tests)) rows += testGroupHTML(g, file, s);
   }
 
   return `<div class="suite-block">
@@ -1289,6 +1289,42 @@ function suiteBlockHTML(file, suite) {
     </div>
     ${rows}
   </div>`;
+}
+
+function groupTestsForDisplay(tests) {
+  const groups = new Map();
+  for (const t of tests) {
+    const gk = (t.describes || []).join(' › ') + '::' + t.title;
+    if (!groups.has(gk)) groups.set(gk, { title: t.title, describes: t.describes || [], entries: [] });
+    groups.get(gk).entries.push(t);
+  }
+  return [...groups.values()];
+}
+
+function testGroupHTML(group, file, s) {
+  if (group.entries.length === 1) return testRowHTML(group.entries[0], file, s);
+
+  const rows = group.entries.map(t => {
+    const b = browsers.find(x => x.key === t.browser);
+    const icon = b ? b.icon : '🧭';
+    const label = b ? b.label : (t.browser || 'unknown');
+    const dur = fmtDur(t.duration);
+    return `<div class="test-row" data-id="${h(t.id)}" style="padding-left:38px">
+      <div class="test-row-main">
+        <span class="test-icon">${testIcon(t.status)}</span>
+        <div class="test-title-wrap">
+          <div class="test-title" style="font-size:12px">${h(icon)} ${h(label)}${dur ? ` — ${dur}` : ''}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="test-row" style="cursor:default">
+    <div class="test-row-main">
+      <span class="test-icon"></span>
+      <div class="test-title-wrap"><div class="test-title">${h(group.title)}</div></div>
+    </div>
+  </div>${rows}`;
 }
 
 function testRowHTML(t, file, s) {

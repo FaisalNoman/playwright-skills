@@ -17,6 +17,21 @@ Do NOT write any files until the user approves the plan.
 
 ---
 
+## Phase 0 — Mode Detection
+
+Runs first, before any document scanning. Determine whether this project already has a Playwright suite:
+
+1. Check whether `playwright.config.ts` (or `.js`) exists at the project root, AND at least one `*.spec.ts`/`*.spec.js` file exists anywhere under the project.
+2. **Neither found → fresh-generation mode.** Proceed to Phase 1 exactly as documented below — nothing about the existing flow changes in shape.
+3. **Both found → ask the user, in ONE message, which of three things they want** (use the `AskUserQuestion` tool, single-select):
+   - **Run the existing suite** — re-verify what's already there through the fix loop; no new spec files are written. This routes straight to Phase 4.5 (Verify & Fix), skipping Phases 1-4 entirely. This is **run-existing mode**.
+   - **Add tests for new/uncovered areas** — read the existing suite first, then scan/interview/plan/write only the gaps. This routes through Phases 1-4 with the incremental-mode behavior described in Phase 1 below, then Phase 4.5 as normal. This is **add-tests mode**.
+   - **Regenerate from scratch** — falls through into fresh-generation mode above; nothing is discarded until Phase 3's approval gate, same as today.
+
+No new trigger phrase or separate skill is needed — the same `/playwright-setup` entry point routes into whichever mode Phase 0 detects/the user picks. This is what makes the run-and-fix loop usable anytime, not just at setup time: re-invoking the skill on an already-scaffolded project naturally lands on this three-way choice.
+
+---
+
 ## Phase 1 — Document Discovery
 
 Scan in this order. Stop at each level if enough info found to draft a plan.

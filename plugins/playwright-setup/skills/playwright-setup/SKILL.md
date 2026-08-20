@@ -466,12 +466,12 @@ If Step 3 reports any failures, iterate — up to 3 attempts total:
 
 ## Phase 5 — Confirm
 
-After writing all files, report:
+After Phase 4.5 completes (whether that ran after fresh generation, add-tests, or run-existing mode), report:
 
 ```
 ## ✓ Playwright Setup Complete
 
-**Verified:** `npx playwright test --list` reports N tests (matches the plan).
+**Verified:** `npx playwright test --list` reports N tests (matches the plan). `npx playwright test --reporter=line` run: P passed, F failed, S skipped.
 
 ### Files created
 - playwright.config.ts
@@ -500,7 +500,31 @@ node tests/reporters/progress-server.js
 4. [any project-specific steps found during scan]
 ```
 
-Then ask: "Add the real-time test progress dashboard now? (`/e2e-dashboard` — live SSE test progress, re-run individual tests, trace viewer integration)" If yes, invoke the `e2e-dashboard` skill directly in this same session rather than just telling the user to run it themselves.
+**Whenever the Phase 4.5 fix loop ran (i.e. Step 3's initial run had any failures), add this section to the report, right after the "Verified" line:**
+
+```
+### Fix loop results
+- should login with valid credentials — **test bug**: selector `[name=email]` didn't match the actual `#email-input` field; corrected and reran, now passing.
+- should create a new booking — **app bug**: booking confirmation page never rendered the confirmation number; fixed `BookingConfirmation.tsx` to read it from the response body instead of a stale prop.
+```
+
+One bullet per failure that occurred during the loop (fixed or not), each explicitly labeled **test bug** or **app bug**, with a one-line description of what was wrong and what changed.
+
+**If, after 3 fix attempts, anything is still failing:** do NOT report "✓ Playwright Setup Complete." Instead report:
+
+```
+## ⚠ Playwright Setup — Needs Your Input
+
+N of M tests passing. Still failing after 3 fix attempts:
+
+- should cancel a booking — inconclusive after 3 attempts: [best diagnosis so far]. Suggest rerunning with `npx playwright test tests/e2e/booking.spec.ts --trace on` to inspect the trace.
+
+[rest of the report — files created, categories, manual steps — still included as normal]
+```
+
+Adjust file-creation and category sections to match whichever mode ran (add-tests mode: list only the NEW files/tests added, not the full pre-existing suite; run-existing mode: omit the "Files created"/"Categories scaffolded" sections entirely, since nothing was written).
+
+Then ask: "Add the real-time test progress dashboard now? (`/e2e-dashboard` — live SSE test progress, re-run individual tests, trace viewer integration)" If yes, invoke the `e2e-dashboard` skill directly in this same session rather than just telling the user to run it themselves. Skip this ask in run-existing mode if the dashboard is already installed (check for `tests/reporters/progress-server.js`).
 
 ---
 

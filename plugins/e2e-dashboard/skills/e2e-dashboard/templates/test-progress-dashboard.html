@@ -153,6 +153,11 @@
   .source-panel-collapsed { margin: 10px 14px; }
   .source-view { margin: 0; padding: 10px; max-height: 320px; overflow: auto; font-family: 'Consolas', 'Fira Code', monospace; font-size: 11px; line-height: 1.5; color: var(--text); white-space: pre; }
   .source-editor { width: 100%; min-height: 320px; padding: 10px; border: none; background: #0d1117; color: var(--text); font-family: 'Consolas', 'Fira Code', monospace; font-size: 11px; line-height: 1.5; resize: vertical; outline: none; tab-size: 2; box-sizing: border-box; display: block; }
+  .browser-dropdown { position: relative; }
+  .browser-dropdown-panel { position: absolute; top: 100%; right: 0; margin-top: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px; min-width: 180px; z-index: 50; box-shadow: 0 4px 12px #0006; }
+  .browser-dropdown-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  .browser-dropdown-item:hover { background: var(--surface2); }
+  .browser-dropdown-item input { cursor: pointer; accent-color: var(--blue); }
   .sidebar-list { flex: 1; overflow-y: auto; padding: 3px 0; }
   .suite-item { padding: 5px 8px; display: flex; align-items: center; gap: 6px; cursor: pointer; transition: background .1s; border-left: 2px solid transparent; min-height: 30px; }
   .suite-item:hover { background: #21262d; }
@@ -469,6 +474,9 @@ let activeCategory = null;
 let sourceCache = {};
 let sourceOpen  = new Set();
 let editingFile = null;
+let browsers            = [];
+let selectedBrowsers    = new Set();
+let browserDropdownOpen = false;
 
 // Restore persisted UI prefs
 if (localStorage.getItem('e2e-hint-dismissed') === '1') document.getElementById('hint-bar').classList.add('hidden');
@@ -487,6 +495,20 @@ document.addEventListener('click', e => {
 
   const rtBtn = e.target.closest('[data-run-test]');
   if (rtBtn) { e.stopPropagation(); runTestByTitle(rtBtn.dataset.file, rtBtn.dataset.runTest); return; }
+
+  // Browser dropdown
+  const toggleDropdownBtn = e.target.closest('[data-toggle-browser-dropdown]');
+  if (toggleDropdownBtn) { e.stopPropagation(); browserDropdownOpen = !browserDropdownOpen; render(); return; }
+
+  const toggleBrowserItem = e.target.closest('[data-toggle-browser]');
+  if (toggleBrowserItem) {
+    e.stopPropagation();
+    const key = toggleBrowserItem.dataset.toggleBrowser;
+    if (selectedBrowsers.has(key)) selectedBrowsers.delete(key); else selectedBrowsers.add(key);
+    localStorage.setItem('e2e-selected-browsers', JSON.stringify([...selectedBrowsers]));
+    render();
+    return;
+  }
 
   // Source panel controls
   const viewSrcBtn = e.target.closest('[data-view-source]');

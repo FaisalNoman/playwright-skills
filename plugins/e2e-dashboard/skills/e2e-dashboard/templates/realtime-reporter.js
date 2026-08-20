@@ -20,6 +20,10 @@ function post(event) {
   req.end(body);
 }
 
+function testBrowser(test) {
+  return test.parent?.project()?.name || '';
+}
+
 function testId(test) {
   return test.id || `${test.location?.file}::${test.titlePath?.join(' > ')}`;
 }
@@ -54,6 +58,7 @@ class RealtimeReporter {
       describes: getDescribes(test),
       file:      testFile(test),
       line:      test.location?.line ?? null,
+      browser:   testBrowser(test),
     });
   }
 
@@ -70,6 +75,7 @@ class RealtimeReporter {
       duration:    result.duration,
       retry:       result.retry || 0,
       attachments,
+      browser:     testBrowser(test),
       error: error
         ? { message: error.message?.substring(0, 600), location: error.location }
         : null,
@@ -83,6 +89,7 @@ class RealtimeReporter {
       id:       testId(test),
       title:    step.title.substring(0, 120),
       category: step.category,
+      browser:  testBrowser(test),
     });
   }
 
@@ -94,6 +101,7 @@ class RealtimeReporter {
       title:    step.title.substring(0, 120),
       category: step.category,
       error:    step.error ? step.error.message?.substring(0, 300) : null,
+      browser:  testBrowser(test),
     });
   }
 

@@ -93,8 +93,8 @@ After scanning, fill in any gaps with ONE focused message covering ALL open ques
 | 4 | **Critical flows** | Top 3–5 user journeys that MUST be tested (e.g. "register → book → cancel") |
 | 5 | **Out of scope** | Any pages/flows explicitly NOT to test now |
 | 6 | **Test categories** | Which test categories to scaffold — see "Test Categories" below |
-| 7 | **Browser targets** | Which browsers/device profiles to configure as Playwright projects — see "Browser Targets" below |
-| 8 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`, and whether a `.github/workflows/e2e.yml` is generated in Phase 4) |
+| 7 | **Browser targets** | Which browsers/device profiles to configure as Playwright projects — see "Browser Targets" below. **Skip this question in add-tests mode** (Phase 0) — Phase 4 never regenerates `playwright.config.ts` in that mode, so there's nothing for the answer to drive; the existing `projects[]` array stays as-is. |
+| 8 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`, and whether a `.github/workflows/e2e.yml` is generated in Phase 4). **Skip in add-tests mode** for the same reason — no config/workflow file is regenerated. |
 
 ### Test Categories
 

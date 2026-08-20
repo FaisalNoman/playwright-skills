@@ -17,7 +17,24 @@ Do NOT write any files until the user approves the plan.
 
 ---
 
+## Phase 0 — Mode Detection
+
+Runs first, before any document scanning. Determine whether this project already has a Playwright suite:
+
+1. Check whether `playwright.config.ts` (or `.js`) exists at the project root, AND at least one `*.spec.ts`/`*.spec.js` file exists anywhere under the project.
+2. **Config and spec files not BOTH present → fresh-generation mode.** This covers three cases: neither exists, only `playwright.config.ts` exists (a mid-setup or config-only project), or only spec files exist with no config. Proceed to Phase 1 exactly as documented below — nothing about the existing flow changes in shape. If a `playwright.config.ts` already exists in this fresh-generation path, call this out explicitly in the Phase 3 plan ("Note: this will replace the existing `playwright.config.ts`") so the approval gate in Phase 3 (`Do NOT write any files until approved`) gives the user a chance to object before it's overwritten.
+3. **Both found → ask the user, in ONE message, which of three things they want** (use the `AskUserQuestion` tool, single-select):
+   - **Run the existing suite** — re-verify what's already there through the fix loop; no new spec files are written. This routes straight to Phase 4.5 (Verify & Fix), skipping Phases 1-4 entirely. This is **run-existing mode**.
+   - **Add tests for new/uncovered areas** — read the existing suite first, then scan/interview/plan/write only the gaps. This routes through Phases 1-4 with the incremental-mode behavior described in Phase 1 below, then Phase 4.5 as normal. This is **add-tests mode**.
+   - **Regenerate from scratch** — falls through into fresh-generation mode above; nothing is discarded until Phase 3's approval gate, same as today.
+
+No new trigger phrase or separate skill is needed — the same `/playwright-setup` entry point routes into whichever mode Phase 0 detects/the user picks. This is what makes the run-and-fix loop usable anytime, not just at setup time: re-invoking the skill on an already-scaffolded project naturally lands on this three-way choice.
+
+---
+
 ## Phase 1 — Document Discovery
+
+**If in add-tests mode (Phase 0):** before scanning docs, read the existing spec files (`tests/**/*.spec.ts` or wherever Phase 0's detection found them) to understand current coverage, fixture usage, selector conventions, and file organization. Carry this understanding into every later phase: Phase 3's plan proposes NEW tests only for gaps against the interview answers — never rewrite passing tests, never restructure existing files, and match the existing style even where it conflicts with this skill's own defaults (e.g. if the project already uses `page.locator()` CSS selectors throughout instead of `data-testid`, follow that convention for new tests rather than imposing the selector-priority list below).
 
 Scan in this order. Stop at each level if enough info found to draft a plan.
 
@@ -163,6 +180,8 @@ When more than one category was selected in Phase 2, group the "Files to create"
 ```
 
 Add a `.github/workflows/e2e.yml` row here when the user confirmed CI/CD in Phase 2.
+
+**Suite-size sanity check (advisory, not a hard cap):** if the proposed plan exceeds roughly 10-15 tests for any single critical flow from Phase 2, flag it in the same message as the plan and suggest trimming to the highest-value cases — unless the user's own Phase 2 "Critical flows" answer explicitly called for exhaustive coverage, in which case don't flag it. This is a suggestion the user can override by approving the plan as-is; never silently trim tests without asking.
 
 Ask: "Approve this plan? Add, remove, or change anything?"
 
@@ -475,25 +494,61 @@ Adapt: add `TEST_EMAIL`/`TEST_PASSWORD` (and any other `.env.test` values) as re
 
 ---
 
-## Phase 4.5 — Verify (mandatory, before reporting success)
+## Phase 4.5 — Verify & Fix (mandatory, before reporting success)
 
-Do NOT report the suite as ready without running this check.
+Do NOT report the suite as ready without running this check. This phase is also the direct entry point when Phase 0 routed into **run-existing mode** — in that case, skip straight here with no Phase 1-4 work done.
 
-1. Run: `npx playwright test --list`
-2. **If it exits non-zero or prints a parse/syntax error:** fix the specific file it points to and re-run. Do not proceed to Phase 5 until this exits 0.
-3. **If it exits 0:** note the total test count it reports and cross-check it against the plan's "# Tests" column from Phase 3 — if they don't match, investigate why (a `describe.skip`, a typo in a `test.describe` block, etc.) before reporting done.
-4. Include the verified count in the Phase 5 report ("✓ N tests verified with `playwright test --list`") — this is the one concrete piece of evidence that the generated suite is actually runnable, not just plausible-looking code.
+### Step 1 — List check
+
+Run: `npx playwright test --list`
+
+**If it exits non-zero or prints a parse/syntax error:** fix the specific file it points to and re-run. Do not proceed until this exits 0.
+
+**If it exits 0:** note the total test count it reports and cross-check it against the plan's "# Tests" column from Phase 3 (skip this cross-check in run-existing mode, where there is no Phase 3 plan to compare against) — if they don't match, investigate why (a `describe.skip`, a typo in a `test.describe` block, etc.) before proceeding.
+
+### Step 2 — Bootstrap check (new)
+
+If `@playwright/test` is not resolvable — not present in `package.json`'s `devDependencies`, and not present in `node_modules/@playwright` — run, in order:
+
+```bash
+npm install -D @playwright/test
+npx playwright install  # installs browser binaries for the configured projects only
+```
+
+This check is lazy: it only runs here, once execution is actually about to happen. Never run it during Phase 1-3 — an abandoned flow (user declines the Phase 3 plan, or Phase 0 routes to run-existing on a project where Playwright is already present) must never pay this install cost.
+
+### Step 3 — Actually run the suite (new)
+
+Run: `npx playwright test --reporter=line`
+
+This is the core change from the old Verify phase: replacing "parses" with "runs." A suite that reports "N tests parsed successfully" via `--list` can still fail every single test on a real run — this step is what actually proves the suite works.
+
+### Step 4 — Fix loop on failures (new), capped at 3 attempts
+
+If Step 3 reports any failures, iterate — up to 3 attempts total:
+
+1. **Read the failure output** for each failing test: expected vs actual value, the failing selector, and any page-state snippet Playwright's error already includes.
+2. **Categorize each failure explicitly, in your response to the user, as one of:**
+   - **Test bug** — wrong selector, a timing issue, or a wrong expected value written during generation. The test itself is wrong, not the app.
+   - **App bug** — real, broken behavior in the application under test. The test correctly caught something wrong with the app.
+3. **Fix the right thing:**
+   - Test bug → correct the spec file directly (fix the selector, fix the expected value) — no confirmation needed, this only touches generated test code.
+   - App bug → do NOT edit application code yet. Present the diagnosis to the user first: which file(s) you'd change, what's currently broken, and the specific fix you're proposing. Wait for the user's go-ahead before editing any application source file. Once confirmed, apply the fix and explain in your response exactly what changed and why. This confirmation step applies only to application code — never to the generated test files themselves.
+   - Timing issue (a specific kind of test bug) → add a proper `expect().toBeVisible()` / `waitForURL()` wait, or a targeted timeout increase. **Never `page.waitForTimeout()`** — this project's existing DO-NOT rule (Phase 4's "Style rules" section) applies here too, including during fixes.
+4. **If a failure's cause isn't clear from the error output alone,** suggest rerunning that specific test with `--trace on` (`npx playwright test <file> --trace on`) and use the resulting trace to diagnose before guessing at a fix. Don't guess-and-check blindly — use the trace.
+5. **Rerun after each fix attempt** (`npx playwright test --reporter=line`, or scope to just the previously-failing files/tests for faster iteration) and document the exact command used in your response. If an app-bug fix is awaiting user confirmation (per step 3), do not rerun until that confirmation is received — a rerun without the fix applied would just reproduce the same failure and waste an attempt.
+6. **After 3 attempts, if some test is still red:** stop. Do not attempt a 4th fix. Report exactly what's still failing and why (per-test, with your best diagnosis even if unresolved), and ask the user for guidance rather than continuing to iterate blindly. This matches this project's own `systematic-debugging` convention of escalating after repeated failed fix attempts.
 
 ---
 
 ## Phase 5 — Confirm
 
-After writing all files, report:
+After Phase 4.5 completes (whether that ran after fresh generation, add-tests, or run-existing mode), report:
 
 ```
 ## ✓ Playwright Setup Complete
 
-**Verified:** `npx playwright test --list` reports N tests (matches the plan).
+**Verified:** `npx playwright test --list` reports N tests (matches the plan). `npx playwright test --reporter=line` run: P passed, F failed, S skipped.
 
 ### Files created
 - playwright.config.ts
@@ -522,7 +577,31 @@ node tests/reporters/progress-server.js
 4. [any project-specific steps found during scan]
 ```
 
-Then ask: "Add the real-time test progress dashboard now? (`/e2e-dashboard` — live SSE test progress, re-run individual tests, trace viewer integration)" If yes, invoke the `e2e-dashboard` skill directly in this same session rather than just telling the user to run it themselves.
+**Whenever the Phase 4.5 fix loop ran (i.e. Step 3's initial run had any failures), add this section to the report, right after the "Verified" line:**
+
+```
+### Fix loop results
+- should login with valid credentials — **test bug**: selector `[name=email]` didn't match the actual `#email-input` field; corrected and reran, now passing.
+- should create a new booking — **app bug**: booking confirmation page never rendered the confirmation number; fixed `BookingConfirmation.tsx` to read it from the response body instead of a stale prop.
+```
+
+One bullet per failure that occurred during the loop (fixed or not), each explicitly labeled **test bug** or **app bug**, with a one-line description of what was wrong and what changed.
+
+**If, after 3 fix attempts, anything is still failing:** do NOT report "✓ Playwright Setup Complete." Instead report:
+
+```
+## ⚠ Playwright Setup — Needs Your Input
+
+N of M tests passing. Still failing after 3 fix attempts:
+
+- should cancel a booking — inconclusive after 3 attempts: [best diagnosis so far]. Suggest rerunning with `npx playwright test tests/e2e/booking.spec.ts --trace on` to inspect the trace.
+
+[rest of the report — files created, categories, manual steps — still included as normal]
+```
+
+Adjust file-creation and category sections to match whichever mode ran (add-tests mode: list only the NEW files/tests added, not the full pre-existing suite; run-existing mode: omit the "Files created"/"Categories scaffolded" sections entirely, since nothing was written).
+
+Then ask: "Add the real-time test progress dashboard now? (`/e2e-dashboard` — live SSE test progress, re-run individual tests, trace viewer integration)" If yes, invoke the `e2e-dashboard` skill directly in this same session rather than just telling the user to run it themselves. Skip this ask in run-existing mode if the dashboard is already installed (check for `tests/reporters/progress-server.js`).
 
 ---
 

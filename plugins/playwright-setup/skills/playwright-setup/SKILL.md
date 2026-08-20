@@ -76,7 +76,8 @@ After scanning, fill in any gaps with ONE focused message covering ALL open ques
 | 4 | **Critical flows** | Top 3–5 user journeys that MUST be tested (e.g. "register → book → cancel") |
 | 5 | **Out of scope** | Any pages/flows explicitly NOT to test now |
 | 6 | **Test categories** | Which test categories to scaffold — see "Test Categories" below |
-| 7 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`, and whether a `.github/workflows/e2e.yml` is generated in Phase 4) |
+| 7 | **Browser targets** | Which browsers/device profiles to configure as Playwright projects — see "Browser Targets" below |
+| 8 | **CI/CD** | Will tests run in CI? (affects `workers`, `retries`, `forbidOnly`, and whether a `.github/workflows/e2e.yml` is generated in Phase 4) |
 
 ### Test Categories
 
@@ -88,11 +89,22 @@ Ask this as a dedicated multi-select question — use the `AskUserQuestion` tool
 
 Selecting more than one category changes `playwright.config.ts`'s `testDir` in Phase 4 and adds the corresponding spec-file sections to the Phase 3 plan and Phase 4 implementation.
 
+### Browser Targets
+
+Ask this as a dedicated multi-select question — use the `AskUserQuestion` tool with `multiSelect: true` — same pattern as Test Categories:
+
+- **Chromium** (default selected) — `devices['Desktop Chrome']`. Covers most projects' needs alone.
+- **Firefox** — `devices['Desktop Firefox']`.
+- **WebKit** — `devices['Desktop Safari']`.
+- **Mobile Chrome** — `devices['Pixel 5']`.
+- **Mobile Safari** — `devices['iPhone 13']`.
+
+Selecting more than one target changes Phase 4's `playwright.config.ts` generation: each selection becomes its own `projects[]` entry, and the shared `use.launchOptions` block is replaced by a per-project window-tiling override (see Phase 4 below) — the single-Chromium case is unaffected and generates exactly what it does today.
+
 ### Optional (ask only if not inferable from code)
 
 - DB/seed setup required before tests? (`globalSetup`)
 - Test data strategy: fixtures, factories, or live DB?
-- Browser targets: Chromium only, or also Firefox/Safari?
 - Mobile viewports needed?
 - Any existing test files to follow as style guide?
 - Should Page Object Model pattern be used?

@@ -123,14 +123,14 @@ Each detected `browser_targets` entry becomes one object:
 { key: 'chromium', label: 'Chromium', icon: '🧭' }
 ```
 
-`key` must exactly match that project's `name` in `playwright.config.ts`'s `projects[]` array — this is what gets passed as `--project=<key>` when the dashboard runs it.
+`key` must exactly match that project's `name` in `playwright.config.ts`'s `projects[]` array — this is what gets passed as `--project=<key>` when the dashboard runs it. `key` must also be space-free — it becomes a literal `--project` CLI argument passed through a shell-mode spawn, and a value containing a space will be incorrectly split by the shell.
 
 | Project name | `label` | `icon` |
 |---|---|---|
 | `chromium` | `Chromium` | `🧭` |
 | `firefox` | `Firefox` | `🦊` |
 | `webkit` | `WebKit` | `🧭` (Safari-style compass, no distinct emoji) |
-| Mobile-profile projects (e.g. `Mobile Chrome`, `Mobile Safari`) | Title-cased project name | `📱` |
+| Mobile-profile projects (e.g. `mobile-chrome`, `mobile-safari`) | Title-cased display name (e.g. `Mobile Chrome`) — the `key` itself must stay the space-free project name, never the display label | `📱` |
 
 Example for a project with all three desktop engines:
 

@@ -96,8 +96,8 @@ Ask this as a dedicated multi-select question — use the `AskUserQuestion` tool
 - **Chromium** (default selected) — `devices['Desktop Chrome']`. Covers most projects' needs alone.
 - **Firefox** — `devices['Desktop Firefox']`.
 - **WebKit** — `devices['Desktop Safari']`.
-- **Mobile Chrome** — `devices['Pixel 5']`.
-- **Mobile Safari** — `devices['iPhone 13']`.
+- **Mobile Chrome** — `devices['Pixel 5']`. Generated project `name` must be the space-free slug `mobile-chrome` (not the display label) — Playwright project names flow through as literal `--project` CLI args, and a name containing a space breaks under the dashboard server's shell-mode process spawn.
+- **Mobile Safari** — `devices['iPhone 13']`. Generated project `name` must be the space-free slug `mobile-safari`, same reasoning.
 
 Selecting more than one target changes Phase 4's `playwright.config.ts` generation: each selection becomes its own `projects[]` entry, and the shared `use.launchOptions` block is replaced by a per-project window-tiling override (see Phase 4 below) — the single-Chromium case is unaffected and generates exactly what it does today.
 
@@ -282,13 +282,13 @@ export default defineConfig({
 
 The mapping from Phase 2 selections to `devices[...]` presets:
 
-| Selection | `devices[...]` preset |
-|---|---|
-| Chromium | `devices['Desktop Chrome']` |
-| Firefox | `devices['Desktop Firefox']` |
-| WebKit | `devices['Desktop Safari']` |
-| Mobile Chrome | `devices['Pixel 5']` |
-| Mobile Safari | `devices['iPhone 13']` |
+| Selection | Project `name` | `devices[...]` preset |
+|---|---|---|
+| Chromium | `chromium` | `devices['Desktop Chrome']` |
+| Firefox | `firefox` | `devices['Desktop Firefox']` |
+| WebKit | `webkit` | `devices['Desktop Safari']` |
+| Mobile Chrome | `mobile-chrome` | `devices['Pixel 5']` |
+| Mobile Safari | `mobile-safari` | `devices['iPhone 13']` |
 
 `windowArgsForProject`'s `index` argument is that project's fixed position in the `projects[]` array (0-based) — must match the order the browsers appear in the array, since `progress-server.js`'s `PW_WIN_LAYOUT` array is ordered the same way the `--project` flags were passed on the command line, which itself follows the dashboard's selection order.
 

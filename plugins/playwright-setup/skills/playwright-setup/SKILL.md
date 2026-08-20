@@ -34,6 +34,8 @@ No new trigger phrase or separate skill is needed — the same `/playwright-setu
 
 ## Phase 1 — Document Discovery
 
+**If in add-tests mode (Phase 0):** before scanning docs, read the existing spec files (`tests/**/*.spec.ts` or wherever Phase 0's detection found them) to understand current coverage, fixture usage, selector conventions, and file organization. Carry this understanding into every later phase: Phase 3's plan proposes NEW tests only for gaps against the interview answers — never rewrite passing tests, never restructure existing files, and match the existing style even where it conflicts with this skill's own defaults (e.g. if the project already uses `page.locator()` CSS selectors throughout instead of `data-testid`, follow that convention for new tests rather than imposing the selector-priority list below).
+
 Scan in this order. Stop at each level if enough info found to draft a plan.
 
 ### Level 1: Requirements docs (highest signal)

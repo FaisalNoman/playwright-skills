@@ -22,7 +22,7 @@ Do NOT write any files until the user approves the plan.
 Runs first, before any document scanning. Determine whether this project already has a Playwright suite:
 
 1. Check whether `playwright.config.ts` (or `.js`) exists at the project root, AND at least one `*.spec.ts`/`*.spec.js` file exists anywhere under the project.
-2. **Neither found → fresh-generation mode.** Proceed to Phase 1 exactly as documented below — nothing about the existing flow changes in shape.
+2. **Config and spec files not BOTH present → fresh-generation mode.** This covers three cases: neither exists, only `playwright.config.ts` exists (a mid-setup or config-only project), or only spec files exist with no config. Proceed to Phase 1 exactly as documented below — nothing about the existing flow changes in shape. If a `playwright.config.ts` already exists in this fresh-generation path, call this out explicitly in the Phase 3 plan ("Note: this will replace the existing `playwright.config.ts`") so the approval gate in Phase 3 (`Do NOT write any files until approved`) gives the user a chance to object before it's overwritten.
 3. **Both found → ask the user, in ONE message, which of three things they want** (use the `AskUserQuestion` tool, single-select):
    - **Run the existing suite** — re-verify what's already there through the fix loop; no new spec files are written. This routes straight to Phase 4.5 (Verify & Fix), skipping Phases 1-4 entirely. This is **run-existing mode**.
    - **Add tests for new/uncovered areas** — read the existing suite first, then scan/interview/plan/write only the gaps. This routes through Phases 1-4 with the incremental-mode behavior described in Phase 1 below, then Phase 4.5 as normal. This is **add-tests mode**.
@@ -455,11 +455,11 @@ If Step 3 reports any failures, iterate — up to 3 attempts total:
    - **Test bug** — wrong selector, a timing issue, or a wrong expected value written during generation. The test itself is wrong, not the app.
    - **App bug** — real, broken behavior in the application under test. The test correctly caught something wrong with the app.
 3. **Fix the right thing:**
-   - Test bug → correct the spec file (fix the selector, fix the expected value).
-   - App bug → fix the application code, and explain in your response exactly what was broken and why.
+   - Test bug → correct the spec file directly (fix the selector, fix the expected value) — no confirmation needed, this only touches generated test code.
+   - App bug → do NOT edit application code yet. Present the diagnosis to the user first: which file(s) you'd change, what's currently broken, and the specific fix you're proposing. Wait for the user's go-ahead before editing any application source file. Once confirmed, apply the fix and explain in your response exactly what changed and why. This confirmation step applies only to application code — never to the generated test files themselves.
    - Timing issue (a specific kind of test bug) → add a proper `expect().toBeVisible()` / `waitForURL()` wait, or a targeted timeout increase. **Never `page.waitForTimeout()`** — this project's existing DO-NOT rule (Phase 4's "Style rules" section) applies here too, including during fixes.
 4. **If a failure's cause isn't clear from the error output alone,** suggest rerunning that specific test with `--trace on` (`npx playwright test <file> --trace on`) and use the resulting trace to diagnose before guessing at a fix. Don't guess-and-check blindly — use the trace.
-5. **Rerun after each fix attempt** (`npx playwright test --reporter=line`, or scope to just the previously-failing files/tests for faster iteration) and document the exact command used in your response.
+5. **Rerun after each fix attempt** (`npx playwright test --reporter=line`, or scope to just the previously-failing files/tests for faster iteration) and document the exact command used in your response. If an app-bug fix is awaiting user confirmation (per step 3), do not rerun until that confirmation is received — a rerun without the fix applied would just reproduce the same failure and waste an attempt.
 6. **After 3 attempts, if some test is still red:** stop. Do not attempt a 4th fix. Report exactly what's still failing and why (per-test, with your best diagnosis even if unresolved), and ask the user for guidance rather than continuing to iterate blindly. This matches this project's own `systematic-debugging` convention of escalating after repeated failed fix attempts.
 
 ---

@@ -227,6 +227,71 @@ export default defineConfig({
 
 Adapt: remove `globalSetup` if not needed, add multiple projects if multiple baseURLs exist, fill in actual commands from package.json, substitute `FULLY_PARALLEL`/`WORKERS` from the Phase 2 answer (default `false`/`2` if the user had no preference and state-sharing signals were ambiguous).
 
+### `projects[]` when multiple browser targets were selected in Phase 2
+
+**Single target (Chromium only, the default):** keep the `projects` array and shared `use.launchOptions` exactly as shown above — unchanged from today.
+
+**Two or more targets:** generate one `projects[]` entry per selection, using the matching `devices[...]` preset, and replace the single shared `use.launchOptions` with a per-project index-based window-tiling override:
+
+```typescript
+import { defineConfig, devices } from '@playwright/test';
+
+function windowArgsForProject(index: number) {
+  if (process.env.PW_WIN_LAYOUT) {
+    try {
+      const layout = JSON.parse(process.env.PW_WIN_LAYOUT);
+      const slot = layout[index] || layout[layout.length - 1];
+      if (slot) {
+        return [
+          `--window-position=${slot.x},${slot.y}`,
+          `--window-size=${slot.w},${slot.h}`,
+          '--disable-features=CalculateNativeWinOcclusion',
+        ];
+      }
+    } catch {}
+  }
+  return process.env.PW_WIN_X != null ? [
+    `--window-position=${process.env.PW_WIN_X},${process.env.PW_WIN_Y || '0'}`,
+    `--window-size=${process.env.PW_WIN_W || '960'},${process.env.PW_WIN_H || '1080'}`,
+    '--disable-features=CalculateNativeWinOcclusion',
+  ] : [];
+}
+
+export default defineConfig({
+  // ...same top-level config as the single-target case (testDir, reporter, use.trace, etc.)...
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'], baseURL: 'http://localhost:PORT',
+        launchOptions: { slowMo: parseInt(process.env.PLAYWRIGHT_SLOW_MO || '0', 10), args: windowArgsForProject(0) },
+      },
+    },
+    {
+      name: 'firefox',
+      use: {
+        ...devices['Desktop Firefox'], baseURL: 'http://localhost:PORT',
+        launchOptions: { slowMo: parseInt(process.env.PLAYWRIGHT_SLOW_MO || '0', 10), args: windowArgsForProject(1) },
+      },
+    },
+    // one entry per selected target, index matching array position (0, 1, 2, ...)
+  ],
+  // ...webServer unchanged...
+});
+```
+
+The mapping from Phase 2 selections to `devices[...]` presets:
+
+| Selection | `devices[...]` preset |
+|---|---|
+| Chromium | `devices['Desktop Chrome']` |
+| Firefox | `devices['Desktop Firefox']` |
+| WebKit | `devices['Desktop Safari']` |
+| Mobile Chrome | `devices['Pixel 5']` |
+| Mobile Safari | `devices['iPhone 13']` |
+
+`windowArgsForProject`'s `index` argument is that project's fixed position in the `projects[]` array (0-based) — must match the order the browsers appear in the array, since `progress-server.js`'s `PW_WIN_LAYOUT` array is ordered the same way the `--project` flags were passed on the command line, which itself follows the dashboard's selection order.
+
 `testDir` depends on how many categories were selected in Phase 2:
 - **Single category (E2E only, the default):** `testDir: './tests/e2e'` — unchanged from today.
 - **Two or more categories:** `testDir: './tests'` (the parent dir) so Playwright's default recursive glob (`**/*.spec.ts`) picks up `tests/e2e/`, `tests/security/`, and `tests/perf/` together. Do not add a `testMatch` override — the default pattern already covers all three subfolders.

@@ -169,6 +169,8 @@ When more than one category was selected in Phase 2, group the "Files to create"
 
 Add a `.github/workflows/e2e.yml` row here when the user confirmed CI/CD in Phase 2.
 
+**Suite-size sanity check (advisory, not a hard cap):** if the proposed plan exceeds roughly 10-15 tests for any single critical flow from Phase 2, flag it in the same message as the plan and suggest trimming to the highest-value cases — unless the user's own Phase 2 "Critical flows" answer explicitly called for exhaustive coverage, in which case don't flag it. This is a suggestion the user can override by approving the plan as-is; never silently trim tests without asking.
+
 Ask: "Approve this plan? Add, remove, or change anything?"
 
 Do NOT write any files until approved.

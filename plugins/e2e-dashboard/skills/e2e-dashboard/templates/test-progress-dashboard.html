@@ -678,6 +678,28 @@ function toggleFailureGroups() {
   if (tog)   tog.textContent = fgCollapsed ? '▸' : '▾';
 }
 
+// ── Browser summary ───────────────────────────────────────────────────────────
+function browserSummaryHTML() {
+  if (!state) return '';
+  const byBrowser = new Map();
+  for (const t of Object.values(state.tests)) {
+    if (!byBrowser.has(t.browser)) byBrowser.set(t.browser, { passed: 0, total: 0 });
+    const entry = byBrowser.get(t.browser);
+    entry.total++;
+    if (t.status === 'passed') entry.passed++;
+  }
+  if (byBrowser.size < 2) return '';
+  const parts = [...byBrowser.entries()].map(([key, { passed, total }]) => {
+    const b = browsers.find(x => x.key === key);
+    const icon = b ? b.icon : '🧭';
+    const label = b ? b.label : (key || 'unknown');
+    const cls = passed === total ? 's-passed' : 's-failed';
+    return `<span class="${cls}">${h(icon)} ${h(label)}: ${passed}/${total}</span>`;
+  });
+  return `<div style="padding:6px 16px;font-size:12px;display:flex;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--border)">${parts.join('')}</div>`;
+}
+
+// ── Failure groups ────────────────────────────────────────────────────────────
 function failureGroupsHTML() {
   if (!state || state.failed === 0) return '';
   const failures = Object.values(state.tests).filter(t => t.status === 'failed' || t.status === 'timedOut');
@@ -1161,7 +1183,7 @@ function renderContent() {
     return;
   }
 
-  let html = failureGroupsHTML();
+  let html = browserSummaryHTML() + failureGroupsHTML();
 
   for (const file of filesToShow) {
     html += sourcePanelHTML(file);

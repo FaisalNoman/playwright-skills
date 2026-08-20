@@ -1294,7 +1294,7 @@ function suiteBlockHTML(file, suite) {
 function groupTestsForDisplay(tests) {
   const groups = new Map();
   for (const t of tests) {
-    const gk = (t.describes || []).join(' › ') + '::' + t.title;
+    const gk = JSON.stringify([t.describes || [], t.title]);
     if (!groups.has(gk)) groups.set(gk, { title: t.title, describes: t.describes || [], entries: [] });
     groups.get(gk).entries.push(t);
   }

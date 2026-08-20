@@ -324,6 +324,7 @@
     <button class="btn-ghost"                id="btn-notif"      onclick="requestNotif()" title="Enable browser notifications">🔔</button>
     <button class="btn-ghost"                id="btn-shortcuts"  onclick="openShortcuts()" title="Keyboard shortcuts [?]">?</button>
   </div>
+  <div id="browser-dropdown-container"></div>
   <div class="header-right">
     <span id="status-badge" class="status-badge badge-idle">Idle</span>
     <span id="elapsed" class="elapsed"></span>
@@ -770,7 +771,7 @@ async function doRun(params) {
     await fetch(`${SERVER}/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Dashboard-Token': DASHBOARD_TOKEN },
-      body: JSON.stringify({ ...params, mode: runMode, slowMo, skipSeed }),
+      body: JSON.stringify({ ...params, mode: runMode, slowMo, skipSeed, browsers: [...selectedBrowsers] }),
     });
   } catch {
     alert('Cannot reach progress server.\n\nStart it:\n  node tests/reporters/progress-server.js');
@@ -901,6 +902,20 @@ async function loadCategories() {
   } catch {}
 }
 
+async function loadBrowsers() {
+  try {
+    const r = await fetch(`${SERVER}/browsers`);
+    browsers = (await r.json()).browsers || [];
+    if (selectedBrowsers.size === 0) {
+      let stored = null;
+      try { stored = JSON.parse(localStorage.getItem('e2e-selected-browsers') || 'null'); } catch {}
+      const valid = Array.isArray(stored) ? stored.filter(k => browsers.some(b => b.key === k)) : [];
+      selectedBrowsers = new Set(valid.length > 0 ? valid : browsers.map(b => b.key));
+    }
+    render();
+  } catch {}
+}
+
 async function loadHistory() {
   try {
     const r = await fetch(`${SERVER}/history`);
@@ -941,9 +956,24 @@ function render() {
   renderStats();
   renderProgress();
   renderCategoryTabs();
+  document.getElementById('browser-dropdown-container').innerHTML = renderBrowserDropdown();
   renderSidebar();
   renderContent();
   if (selectedTestId && !document.getElementById('detail-panel').classList.contains('closed')) renderDetail();
+}
+
+function renderBrowserDropdown() {
+  if (browsers.length < 2) return '';
+  const count = selectedBrowsers.size;
+  const items = browsers.map(b => `
+    <label class="browser-dropdown-item" data-toggle-browser="${h(b.key)}">
+      <input type="checkbox" ${selectedBrowsers.has(b.key) ? 'checked' : ''} onclick="event.preventDefault()">
+      <span>${h(b.icon)} ${h(b.label)}</span>
+    </label>`).join('');
+  return `<div class="browser-dropdown">
+    <button class="btn-ghost" data-toggle-browser-dropdown style="font-size:11px">🌐 Browsers: ${count} selected ▾</button>
+    <div class="browser-dropdown-panel${browserDropdownOpen ? '' : ' hidden'}">${items}</div>
+  </div>`;
 }
 
 function renderCategoryTabs() {
@@ -1432,6 +1462,7 @@ if (reportFile) {
 }
 loadFiles();
 loadCategories();
+loadBrowsers();
 loadHistory();
 </script>
 </body>

@@ -463,7 +463,15 @@ const server = http.createServer(async (req, res) => {
     let params = {};
     try { params = JSON.parse(body); } catch {}
 
-    const { file, grep, mode = 'background', slowMo = 0, skipSeed = false } = params;
+    const { file, grep, mode = 'background', slowMo = 0, skipSeed = false, browsers } = params;
+
+    const allBrowserKeys = BROWSERS.map(b => b.key);
+    let selectedBrowsers = Array.isArray(browsers) && browsers.length > 0 ? browsers : allBrowserKeys;
+    if (!selectedBrowsers.every(b => typeof b === 'string' && allBrowserKeys.includes(b))) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unknown browser in selection' }));
+      return;
+    }
 
     if (file != null && typeof file !== 'string') {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -505,6 +513,7 @@ const server = http.createServer(async (req, res) => {
     const args = ['playwright', 'test'];
     if (file) args.push(file);
     if (grep) args.push('--grep', grep);
+    for (const b of selectedBrowsers) args.push('--project', b);
     if (mode === 'interactive') args.push('--headed');
 
     const env = { ...process.env, E2E_RUN_ID: runId };

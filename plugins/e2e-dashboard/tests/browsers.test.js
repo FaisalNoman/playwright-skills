@@ -23,9 +23,9 @@ function waitForLine(stream, pattern, timeoutMs = 8000) {
   });
 }
 
-// ── Unit: computeTileLayout (single-category default template, no adaptation needed) ──
+// ── Unit: computeWindowLayout (single-category default template, no adaptation needed) ──
 
-describe('computeTileLayout', () => {
+describe('computeWindowLayout', () => {
   let tmpRoot;
 
   before(() => {
@@ -40,41 +40,27 @@ describe('computeTileLayout', () => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  test('count<=1 reproduces the legacy single-window region', () => {
+  test('count<=1 returns a single slot centered on the (mocked 1920x1080) screen', () => {
     const mod = require(path.join(tmpRoot, 'tests', 'reporters', 'progress-server.js'));
-    const layout = mod.computeTileLayout(1);
+    const layout = mod.computeWindowLayout(1);
     assert.equal(layout.length, 1);
-    assert.equal(layout[0].y, 0);
-    assert.equal(layout[0].x, Math.floor(1920 / 3));
-    assert.equal(layout[0].w, 1920 - Math.floor(1920 / 3));
-    assert.equal(layout[0].h, 1080);
+    assert.equal(layout[0].w, 1280);
+    assert.equal(layout[0].h, 800);
+    assert.equal(layout[0].x, Math.floor((1920 - 1280) / 2));
+    assert.equal(layout[0].y, Math.floor((1080 - 800) / 2));
   });
 
-  test('count=2 splits the region into two equal-height, side-by-side halves', () => {
+  test('2+ browsers all get the identical centered slot (each maximizes and overlaps by design)', () => {
     const mod = require(path.join(tmpRoot, 'tests', 'reporters', 'progress-server.js'));
-    const layout = mod.computeTileLayout(2);
-    assert.equal(layout.length, 2);
-    assert.equal(layout[0].h, 1080);
-    assert.equal(layout[1].h, 1080);
-    assert.equal(layout[0].x + layout[0].w, layout[1].x); // adjacent, no gap or overlap
-  });
-
-  test('count=4 tiles a 2x2 grid with no overlap', () => {
-    const mod = require(path.join(tmpRoot, 'tests', 'reporters', 'progress-server.js'));
-    const layout = mod.computeTileLayout(4);
+    const layout = mod.computeWindowLayout(4);
     assert.equal(layout.length, 4);
-    assert.equal(layout[0].x, layout[2].x);
-    assert.equal(layout[1].x, layout[3].x);
-    assert.equal(layout[0].y, layout[1].y);
-    assert.equal(layout[2].y, layout[3].y);
+    for (const slot of layout) assert.deepEqual(slot, layout[0]);
   });
 
-  test('count=6 reuses the 4th slot rather than growing further', () => {
+  test('count=0 still returns exactly one slot', () => {
     const mod = require(path.join(tmpRoot, 'tests', 'reporters', 'progress-server.js'));
-    const layout = mod.computeTileLayout(6);
-    assert.equal(layout.length, 6);
-    assert.deepEqual(layout[3], layout[4]);
-    assert.deepEqual(layout[3], layout[5]);
+    const layout = mod.computeWindowLayout(0);
+    assert.equal(layout.length, 1);
   });
 });
 

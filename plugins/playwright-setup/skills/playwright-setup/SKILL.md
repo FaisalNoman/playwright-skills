@@ -113,10 +113,23 @@ Ask this as a dedicated multi-select question — use the `AskUserQuestion` tool
 - **Chromium** (default selected) — `devices['Desktop Chrome']`. Covers most projects' needs alone.
 - **Firefox** — `devices['Desktop Firefox']`.
 - **WebKit** — `devices['Desktop Safari']`.
+- **Microsoft Edge** — `devices['Desktop Chrome']` + `channel: 'msedge'`. Officially supported by Playwright (no separate download — it drives the OS-installed Edge).
+- **Opera** — `devices['Desktop Chrome']` + `launchOptions.executablePath` pointing at the OS-installed Opera binary. Not a Playwright-managed browser — see "Opera / Brave executable resolution" below.
+- **Brave** — `devices['Desktop Chrome']` + `launchOptions.executablePath` pointing at the OS-installed Brave binary. Same caveat as Opera.
 - **Mobile Chrome** — `devices['Pixel 5']`. Generated project `name` must be the space-free slug `mobile-chrome` (not the display label) — Playwright project names flow through as literal `--project` CLI args, and a name containing a space breaks under the dashboard server's shell-mode process spawn.
 - **Mobile Safari** — `devices['iPhone 13']`. Generated project `name` must be the space-free slug `mobile-safari`, same reasoning.
 
-Selecting more than one target changes Phase 4's `playwright.config.ts` generation: each selection becomes its own `projects[]` entry, and the shared `use.launchOptions` block is replaced by a per-project window-tiling override (see Phase 4 below) — the single-Chromium case is unaffected and generates exactly what it does today.
+Selecting more than one target changes Phase 4's `playwright.config.ts` generation: each selection becomes its own `projects[]` entry, and the shared `use.launchOptions` block is replaced by a per-project window-positioning override (see Phase 4 below) — the single-Chromium case is unaffected and generates exactly what it does today.
+
+### Opera / Brave executable resolution
+
+Opera and Brave are Chromium-based but Playwright does not manage or auto-download them (no `channel` like `msedge`). The generated config resolves each one's executable path at launch time, in this order:
+
+1. `PW_OPERA_PATH` / `PW_BRAVE_PATH` env var, if set — trusted as-is (a typo surfaces as a real launch error, not a silently-ignored override).
+2. The first common per-OS install path that exists on disk (Program Files / AppData on Windows, `/Applications` on macOS, `/usr/bin` on Linux).
+3. If neither resolves, a deliberately-invalid placeholder path — this only throws when that specific project is actually run (`--project opera` / `--project brave`), not at config load, so projects for browsers nobody selected never break unrelated runs.
+
+See the `resolveExecutablePath` helper in the Phase 4 config below.
 
 ### Optional (ask only if not inferable from code)
 
@@ -214,11 +227,20 @@ export default defineConfig({
   use: {
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    // Interactive-mode runs (dashboard "headed" runs) get a null viewport so
+    // the page content fills the real OS window instead of staying clipped
+    // to Playwright's fixed 1280x720 default once that window maximizes.
+    // Background/CI runs never set PW_WIN_X, so this stays undefined there —
+    // screenshot dimensions on those runs are unaffected.
+    viewport: process.env.PW_WIN_X != null ? null : undefined,
     launchOptions: {
       slowMo: parseInt(process.env.PLAYWRIGHT_SLOW_MO || '0', 10),
       args: process.env.PW_WIN_X != null ? [
+        // Center the window's brief pre-maximize position, then maximize —
+        // this is what "PW_WIN_X" now drives; the window-size args are gone
+        // since --start-maximized supersedes them.
         `--window-position=${process.env.PW_WIN_X},${process.env.PW_WIN_Y || '0'}`,
-        `--window-size=${process.env.PW_WIN_W || '960'},${process.env.PW_WIN_H || '1080'}`,
+        '--start-maximized',
         // Windows treats a newly-launched automated Chromium window as
         // "occluded" even though it's on top of nothing — Chrome then
         // throttles/backgrounds it, which shows up as opening minimized.
@@ -250,11 +272,17 @@ Adapt: remove `globalSetup` if not needed, add multiple projects if multiple bas
 
 **Single target (Chromium only, the default):** keep the `projects` array and shared `use.launchOptions` exactly as shown above — unchanged from today.
 
-**Two or more targets:** generate one `projects[]` entry per selection, using the matching `devices[...]` preset, and replace the single shared `use.launchOptions` with a per-project index-based window-tiling override:
+**Two or more targets:** generate one `projects[]` entry per selection, using the matching `devices[...]` preset, and replace the single shared `use.launchOptions` with a per-project index-based window-positioning override:
 
 ```typescript
 import { defineConfig, devices } from '@playwright/test';
+import fs from 'fs';
 
+// Interactive-mode windows all get the same centered-then-maximized slot
+// (see progress-server.js's computeWindowLayout) — every index resolves to
+// an identical position. Kept index-based (rather than one flat constant)
+// so a config regenerated with a different browser count/order still works
+// without edits here.
 function windowArgsForProject(index: number) {
   if (process.env.PW_WIN_LAYOUT) {
     try {
@@ -263,7 +291,7 @@ function windowArgsForProject(index: number) {
       if (slot) {
         return [
           `--window-position=${slot.x},${slot.y}`,
-          `--window-size=${slot.w},${slot.h}`,
+          '--start-maximized',
           '--disable-features=CalculateNativeWinOcclusion',
         ];
       }
@@ -271,13 +299,44 @@ function windowArgsForProject(index: number) {
   }
   return process.env.PW_WIN_X != null ? [
     `--window-position=${process.env.PW_WIN_X},${process.env.PW_WIN_Y || '0'}`,
-    `--window-size=${process.env.PW_WIN_W || '960'},${process.env.PW_WIN_H || '1080'}`,
+    '--start-maximized',
     '--disable-features=CalculateNativeWinOcclusion',
   ] : [];
 }
 
+// See "Opera / Brave executable resolution" above. envVar wins if set (even
+// if the path turns out wrong — that should surface as a real launch error,
+// not be silently second-guessed); otherwise the first existing candidate
+// wins; otherwise a deliberately-invalid path so only *this* project's runs
+// fail, at launch time, not config load for every project.
+function resolveExecutablePath(envVar: string, candidates: string[]): string {
+  const override = process.env[envVar];
+  if (override) return override;
+  return candidates.find(p => p && fs.existsSync(p)) || `__${envVar}_NOT_FOUND__`;
+}
+
+const OPERA_PATH = resolveExecutablePath('PW_OPERA_PATH', [
+  process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\Programs\\Opera\\opera.exe` : '',
+  'C:\\Program Files\\Opera\\launcher.exe',
+  'C:\\Program Files (x86)\\Opera\\launcher.exe',
+  '/Applications/Opera.app/Contents/MacOS/Opera',
+  '/usr/bin/opera',
+]);
+
+const BRAVE_PATH = resolveExecutablePath('PW_BRAVE_PATH', [
+  'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+  'C:\\Program Files (x86)\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+  '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+  '/usr/bin/brave-browser',
+  '/usr/bin/brave',
+]);
+
 export default defineConfig({
   // ...same top-level config as the single-target case (testDir, reporter, use.trace, etc.)...
+  use: {
+    // ...trace, screenshot, etc. as in the single-target case...
+    viewport: process.env.PW_WIN_X != null ? null : undefined,
+  },
   projects: [
     {
       name: 'chromium',
@@ -293,21 +352,56 @@ export default defineConfig({
         launchOptions: { slowMo: parseInt(process.env.PLAYWRIGHT_SLOW_MO || '0', 10), args: windowArgsForProject(1) },
       },
     },
-    // one entry per selected target, index matching array position (0, 1, 2, ...)
+    {
+      name: 'edge',
+      use: {
+        ...devices['Desktop Chrome'], channel: 'msedge', baseURL: 'http://localhost:PORT',
+        launchOptions: { slowMo: parseInt(process.env.PLAYWRIGHT_SLOW_MO || '0', 10), args: windowArgsForProject(2) },
+      },
+    },
+    {
+      name: 'opera',
+      use: {
+        ...devices['Desktop Chrome'], baseURL: 'http://localhost:PORT',
+        launchOptions: {
+          executablePath: OPERA_PATH,
+          slowMo: parseInt(process.env.PLAYWRIGHT_SLOW_MO || '0', 10),
+          args: windowArgsForProject(3),
+        },
+      },
+    },
+    {
+      name: 'brave',
+      use: {
+        ...devices['Desktop Chrome'], baseURL: 'http://localhost:PORT',
+        launchOptions: {
+          executablePath: BRAVE_PATH,
+          slowMo: parseInt(process.env.PLAYWRIGHT_SLOW_MO || '0', 10),
+          args: windowArgsForProject(4),
+        },
+      },
+    },
+    // one entry per selected target, index matching array position (0, 1, 2, ...) —
+    // only include the projects actually selected in Phase 2, in selection order.
   ],
   // ...webServer unchanged...
 });
 ```
 
+Only include `OPERA_PATH`/`BRAVE_PATH`/`resolveExecutablePath` and the `import fs from 'fs'` line when Opera and/or Brave were actually selected — don't add unused dead code to configs that don't need it.
+
 The mapping from Phase 2 selections to `devices[...]` presets:
 
-| Selection | Project `name` | `devices[...]` preset |
-|---|---|---|
-| Chromium | `chromium` | `devices['Desktop Chrome']` |
-| Firefox | `firefox` | `devices['Desktop Firefox']` |
-| WebKit | `webkit` | `devices['Desktop Safari']` |
-| Mobile Chrome | `mobile-chrome` | `devices['Pixel 5']` |
-| Mobile Safari | `mobile-safari` | `devices['iPhone 13']` |
+| Selection | Project `name` | `devices[...]` preset | Extra `use`/`launchOptions` |
+|---|---|---|---|
+| Chromium | `chromium` | `devices['Desktop Chrome']` | — |
+| Firefox | `firefox` | `devices['Desktop Firefox']` | — |
+| WebKit | `webkit` | `devices['Desktop Safari']` | — |
+| Microsoft Edge | `edge` | `devices['Desktop Chrome']` | `channel: 'msedge'` |
+| Opera | `opera` | `devices['Desktop Chrome']` | `launchOptions.executablePath: OPERA_PATH` |
+| Brave | `brave` | `devices['Desktop Chrome']` | `launchOptions.executablePath: BRAVE_PATH` |
+| Mobile Chrome | `mobile-chrome` | `devices['Pixel 5']` | — |
+| Mobile Safari | `mobile-safari` | `devices['iPhone 13']` | — |
 
 `windowArgsForProject`'s `index` argument is that project's fixed position in the `projects[]` array (0-based) — must match the order the browsers appear in the array, since `progress-server.js`'s `PW_WIN_LAYOUT` array is ordered the same way the `--project` flags were passed on the command line, which itself follows the dashboard's selection order.
 
@@ -480,7 +574,7 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps BROWSER_LIST
       - run: npx playwright test
       - uses: actions/upload-artifact@v4
         if: always()
@@ -490,7 +584,7 @@ jobs:
           retention-days: 14
 ```
 
-Adapt: add `TEST_EMAIL`/`TEST_PASSWORD` (and any other `.env.test` values) as repo secrets referenced via `env:` on the `npx playwright test` step if the suite needs auth; add a `services:` block if a real backend/DB is required in CI rather than mocked.
+Adapt: add `TEST_EMAIL`/`TEST_PASSWORD` (and any other `.env.test` values) as repo secrets referenced via `env:` on the `npx playwright test` step if the suite needs auth; add a `services:` block if a real backend/DB is required in CI rather than mocked. Replace `BROWSER_LIST` with the space-separated Playwright-installable engines from Phase 2's selection — `chromium`, `firefox`, `webkit`, `msedge` (Edge's underlying channel; `playwright install` accepts the channel name, not the project name `edge`). **Opera and Brave are never in `BROWSER_LIST`** — `playwright install` has no channel for either, so those projects only run against a locally-installed copy of the browser (per "Opera / Brave executable resolution" above) and should be dropped from CI, or left in with a comment noting they'll fail there unless the runner image has Opera/Brave preinstalled.
 
 ---
 
@@ -573,7 +667,7 @@ node tests/reporters/progress-server.js
 ### Manual steps required
 1. Create .env.test with TEST_EMAIL and TEST_PASSWORD
 2. Add .env.test to .gitignore
-3. Install Playwright browsers: npx playwright install chromium
+3. Install Playwright browsers: npx playwright install BROWSER_LIST (same list as CI; skip if only Opera/Brave targets remain — those use the machine's existing install, see "Opera / Brave executable resolution")
 4. [any project-specific steps found during scan]
 ```
 

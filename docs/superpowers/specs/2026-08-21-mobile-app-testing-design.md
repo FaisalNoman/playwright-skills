@@ -1,22 +1,28 @@
 # Mobile App Testing (tapflow integration) — Design Spec
 
-**Status:** Design approved (analysis-only session — no implementation planned yet). See "Next Session" at the bottom.
+**Status:** Design approved (analysis-only session — no implementation planned yet). Revised after live-verifying tapflow's actual API surface (see "Revision note" below). See "Next Session" at the bottom.
+
+**Revision note (2026-08-21):** The first version of this spec assumed tapflow had no locator/assertion concept and would need a custom tap-coordinate flow format plus a hand-built screenshot pixel-diff comparator. Fetching tapflow's real docs (REST API reference, MCP server guide, flow-writing guide, CI guide) disproved that: tapflow ships its own selector-based YAML flow format, native `assertVisible`/`assertNotVisible` steps, a real `tapflow flow run` CLI with JUnit XML output, and device-control (tap/screenshot/UI-tree) only via MCP, not REST. This revision replaces the custom flow format, custom REST client, and custom pixel-diff comparator with tapflow's own tooling. It also removes an artificial "refuse `--ci` invocation" behavior — tapflow's CI story is real and well-documented, so the earlier decision to not build CI wiring is now framed correctly as "not built in this round," not "actively blocked."
 
 ## Problem
 
 `playwright-setup` and `e2e-dashboard` cover web E2E via Playwright, including Playwright's own device-emulation presets (viewport + UA spoofing on desktop browser engines). That's an *approximation* of mobile rendering — it never runs on a real mobile OS, and there is no path today to verify the app on an actual iOS Simulator or Android emulator/device, with real touch input and real Safari/Chrome-for-Android. There's also no way to see those results alongside the existing Playwright suite in the live dashboard.
 
-[tapflow](https://github.com/jo-duchan/tapflow) is a self-hosted relay + macOS agent that streams real iOS Simulator / Android emulator sessions to a browser, forwards touch input, and exposes an MCP server + REST API for programmatic control (screenshot, tap, deeplink). It has **no CDP/WebDriver bridge** — no locators, no DOM access, no assertion API. Its automation surface is tap-by-coordinate plus screenshot comparison, driven either by its own deterministic flow runner or by an LLM agent through MCP.
+[tapflow](https://github.com/jo-duchan/tapflow) is a self-hosted relay + macOS agent that streams real iOS Simulator / Android emulator sessions to a browser and exposes:
+- An **MCP server** for interactive device control (`list_devices`, `connect_device`, `boot_device`, `tap`, `swipe`, `type_text`, `press_key`, `screenshot`, `query_ui_tree`, `launch_app`, `install_app`, `run_flow`) — this is how an LLM agent (Claude) explores an app live.
+- A **flow format**: selector-based YAML (`tapOn`, `assertVisible`, `assertNotVisible`, `inputText`, `swipe`, `scroll`, `openUrl`, etc., with id → label → partial-label selector resolution), conventionally stored at `.tapflow/flows/*.yaml`. This is tapflow's own deterministic, replayable test format — not raw tap coordinates, and not vision/pixel comparison.
+- A **CLI**: `tapflow flow run .tapflow/flows/*.yaml --relay <url> --device <name> [--junit report.xml]` — replays flows against a real device with no LLM in the loop, exits non-zero on failure, and can emit a standard JUnit XML report.
 
 ## Scope
 
 - **Fidelity target:** the user's own web app, rendered on a real iOS Simulator and/or Android emulator via tapflow — not native/hybrid app testing, not a tapflow reimplementation.
-- **Automation model:** a real-device automated test tier, run alongside (not replacing) the existing Playwright suite. Flows are tap/screenshot sequences, not locator-based specs — this is a different, fuzzier paradigm than Playwright's, and the design treats it as a supplement, never a drop-in replacement.
-- **Skill shape:** a new third skill, `mobile-app-testing`, alongside `playwright-setup` and `e2e-dashboard`. Kept separate because the automation model doesn't fit either existing skill's SKILL.md without diluting their Playwright-specific docs.
+- **Automation model:** a real-device automated test tier, run alongside (not replacing) the existing Playwright suite, using tapflow's own flow format and replay engine rather than a custom one.
+- **Skill shape:** a new third skill, `mobile-app-testing`, alongside `playwright-setup` and `e2e-dashboard`. Kept separate because the flow format and toolchain (YAML flows, tapflow CLI, MCP-based recording) don't fit either existing skill's Playwright-specific docs.
 - **tapflow lifecycle:** out of scope. The new skill assumes a tapflow relay + macOS agent is already running (team-operated or local `tapflow start`); it verifies connectivity at interview time and documents tapflow as a prerequisite, but never installs/provisions it.
-- **Flow authoring:** interactive only. Claude connects to tapflow's MCP server during the skill's interview, drives the real simulator itself (screenshot → decide tap → confirm with user) to record each journey, then saves it as a flow file. No batch/headless recording, no import-existing-flows mode.
-- **Reporting:** unified into the existing `e2e-dashboard`, as a new category tab, reusing its SSE/event plumbing rather than a standalone view.
-- **CI:** explicitly out of scope. tapflow agents need real macOS hardware with booted simulators — not something this design tries to make CI-portable. Flows run on-demand, locally or from the dashboard.
+- **Flow authoring:** interactive only. Claude connects to tapflow's MCP server during the skill's interview, drives the real simulator itself (`query_ui_tree`/`screenshot` to see the current screen, `tap`/`swipe`/`type_text` to act), confirms each step's intent with the user, then writes the confirmed sequence as a tapflow-native YAML flow file at `.tapflow/flows/<name>.yaml`. No batch/headless recording, no hand-authoring of raw coordinates.
+- **Running:** delegated entirely to tapflow's own `tapflow flow run` CLI — this repo does not reimplement device control, tap replay, or visual comparison. A new, small adapter parses the JUnit XML `tapflow flow run --junit` produces and forwards it into the dashboard.
+- **Reporting:** unified into the existing `e2e-dashboard`, as a new category tab, reusing its SSE/event plumbing (via the JUnit adapter) rather than a standalone view.
+- **CI:** not built in this round — no CI YAML is generated by this skill. This is a scoping choice, not a technical limitation: tapflow's own CLI + JUnit output is CI-friendly (its own docs show a GitHub Actions example against a persistent Mac agent), so a team can wire it in later using the same `tapflow flow run` + adapter pair this design produces, without needing new tooling.
 
 ## Architecture
 
@@ -24,94 +30,91 @@
 Claude Code (mobile-app-testing skill)
    │
    ├─ Phase A: RECORD
-   │   interview → verify tapflow relay/token → boot real iOS Sim /
-   │   Android emulator via MCP → Claude walks the journey (tap,
-   │   screenshot, vision-verify) → user confirms each step →
-   │   saves tests/mobile/<flow-name>.flow.json + reference screenshots
+   │   interview → verify tapflow relay reachable → connect to tapflow's MCP
+   │   server → boot real iOS Sim / Android emulator → Claude explores the
+   │   journey (screenshot/query_ui_tree to see state, tap/swipe/type_text to
+   │   act) → user confirms each step → Claude writes the confirmed sequence
+   │   as .tapflow/flows/<name>.yaml (tapOn/assertVisible/... steps)
    │
    ├─ Phase B: RUN
-   │   tapflow-flow-runner.js reads tests/mobile/*.flow.json → replays
-   │   each step via tapflow's REST API (tap coords, screenshot,
-   │   vision-compare against reference) → POSTs begin/testBegin/testEnd
-   │   events to progress-server.js's existing POST /event endpoint
+   │   `tapflow flow run .tapflow/flows/*.yaml --relay <url> --device <name>
+   │    --junit test-results/mobile/report.xml`  (tapflow's own CLI —
+   │   deterministic replay, no LLM, no custom code)
+   │       ↓
+   │   tapflow-report-adapter.js parses report.xml, POSTs
+   │   begin/testBegin/testEnd/end events to progress-server.js's
+   │   existing POST /event endpoint
    │
    └─ Phase C: VIEW
-       e2e-dashboard, new "mobile" category tab — reuses existing
-       sidebar/SSE/artifact-panel code unmodified
+       e2e-dashboard, new "mobile" category tab pointed at .tapflow/flows/,
+       reuses existing sidebar/SSE/artifact-panel code unmodified
 ```
 
-Three approaches were considered for the run/report link:
+Two approaches were considered for turning a `tapflow flow run` invocation into dashboard-visible results:
 
-- **A (chosen) — flow runner POSTs directly to `progress-server.js`'s existing `POST /event`.** Confirmed by reading `progress-server.js`: this endpoint already accepts arbitrary `{type: 'begin'|'testBegin'|'testEnd', ...}` JSON and applies it via `applyEvent()` before broadcasting over SSE — it was built to receive events from `realtime-reporter.js`, but nothing about it is Playwright-specific. No new server code needed for the wire protocol itself.
-- **B — hook mobile runs into Playwright's reporter API**, e.g. wrap tapflow calls inside a fake Playwright test so `realtime-reporter.js` picks it up unmodified. Rejected: forces a real-device tap/screenshot flow to pretend to be a Playwright test, which misrepresents failures (a tap timeout isn't a Playwright assertion failure) and couples the mobile runner to `playwright test`'s process lifecycle for no benefit.
-- **C — fully separate dashboard/report for mobile flows.** Considered and rejected per the "Reporting" scope decision above — two places to check test health was explicitly ruled out in favor of one dashboard.
+- **A (chosen) — JUnit XML adapter.** `tapflow flow run --junit report.xml` already produces a standard, well-defined report. A small, dependency-free adapter (regex-based XML parsing — no npm package, matching this repo's existing zero-dependency convention) reads it and POSTs the same event shape `realtime-reporter.js` already sends. Minimal new code, no reliance on undocumented APIs, and it composes with tapflow's own CI story for free.
+- **B — re-implement device control via MCP from a standalone Node script.** Rejected: MCP device-control tools (`tap`, `screenshot`, etc.) are only reachable from an MCP client — writing and maintaining a Node MCP client just to duplicate what `tapflow flow run` already does is unjustified extra surface area for zero benefit.
+- **C (rejected in the first draft of this spec) — custom tap-coordinate flow format + pixel-diff comparator.** Discarded once tapflow's real flow format and `assertVisible` semantics were confirmed — it would have duplicated tapflow's own deterministic replay engine with a strictly worse (coordinate-based, vision/pixel-based) comparison model.
 
 ## Components
 
 ### `mobile-app-testing` (new skill)
 
-- **Interview:** after the standard project-context scan, ask for tapflow relay URL + token (PAT or agent-scope, per what the operation needs), verify connectivity before continuing. Then propose journeys to record — same discovery pattern as `playwright-setup`'s scenario proposals (scan routes/docs, present a multi-select), not reinvented.
-- **Recording:** per journey, connect to tapflow's MCP server, boot the requested device (`platform`/`device` from the interview), and walk the flow step by step. Each tap is Claude's own visual judgment on the live screenshot stream; the user confirms intent matched before the step is saved. Output: `tests/mobile/<flow-name>.flow.json` plus the reference screenshots taken at each step.
-- **Flow file format:**
+- **Interview:** after the standard project-context scan, ask for tapflow relay URL + token, verify connectivity before continuing (a lightweight authenticated call, e.g. `GET /api/v1/auth/me`, which *is* documented REST). Then propose journeys to record — same discovery pattern as `playwright-setup`'s scenario proposals (scan routes/docs, present a multi-select).
+- **Recording:** per journey, connect to tapflow's MCP server, boot the requested device, and explore the flow step by step using `query_ui_tree`/`screenshot` to see state and `tap`/`swipe`/`type_text`/`press_key` to act. Each step's target element is confirmed with the user by its resolved selector (id or label), not a raw coordinate. Output: `.tapflow/flows/<name>.yaml`, tapflow's native format:
 
-  ```json
-  {
-    "name": "checkout-happy-path",
-    "platform": "ios",
-    "device": "iPhone 15 Pro",
-    "steps": [
-      { "action": "launch", "deeplink": "myapp://home" },
-      { "action": "tap", "target": "Add to Cart button", "x": 210, "y": 640, "screenshot": "step-1.png" },
-      { "action": "tap", "target": "Cart icon", "x": 340, "y": 60, "screenshot": "step-2.png" },
-      { "action": "assert-visible", "target": "Checkout total", "screenshot": "step-3.png" }
-    ]
-  }
+  ```yaml
+  name: checkout-happy-path
+  appId: com.example.app
+  steps:
+    - launchApp
+    - tapOn: "Add to Cart"
+    - tapOn: { id: "com.example.app:id/cart-icon" }
+    - assertVisible: { label: "Checkout total", timeout: 15 }
   ```
 
-  `x`/`y` are ground-truth coordinates captured at record time. `target` is a human-readable label used both for the dashboard's step name and to let the runner re-locate the element visually (small tolerance) if layout drifted slightly since recording. `assert-visible` is the closest analog to a Playwright assertion — a vision-based screenshot comparison, not a DOM check.
+  `assertVisible`/`assertNotVisible` are tapflow's native pass/fail primitives — no custom comparison logic needed on this repo's side.
 
-### `tapflow-flow-runner.js` (new template, ships with the skill)
+### `tapflow-report-adapter.js` (new template, ships with the skill)
 
-- CLI: `node tapflow-flow-runner.js [flow-name...]` — no args runs every `tests/mobile/*.flow.json`.
-- Per flow: optionally POST `begin` to the dashboard (dashboard connection is optional — the runner works standalone from a terminal too, per the "local-only" scope). Per step: replay via tapflow REST (tap/deeplink), screenshot, vision-compare against the recorded reference, POST `testBegin`/`testEnd` with `browser: "mobile:<platform>"` and `file: "tests/mobile/<flow-name>.flow.json"` so results slot into the dashboard's existing file-based grouping.
-- One retry per `assert-visible` step before marking it failed — a deliberate, visible tolerance for screenshot-comparison fuzziness (the retry itself appears in the step log, not hidden).
-- Failure captures a diff screenshot + short mismatch description, attached the same way existing trace/screenshot artifacts attach.
-- Exit code reflects overall pass/fail. Explicitly refuses a `--ci` style invocation rather than half-supporting it — matches the "local/team QA only" decision.
+- CLI: `node tapflow-report-adapter.js --report <path/to/report.xml> --platform <ios|android> [--dashboard-url http://127.0.0.1:7373]`.
+- Reads the JUnit XML `tapflow flow run --junit` produced, parses `<testsuite>`/`<testcase>`/`<failure>` via a small regex-based parser (no npm dependency, consistent with `progress-server.js`'s existing zero-dependency convention), and POSTs one `testBegin`/`testEnd` pair per `<testcase>` (one flow = one test row) tagged `browser: "mobile:<platform>"` and `file: ".tapflow/flows/<flow-name>.yaml"`, wrapped in a `begin`/`end` pair for the whole report. Dashboard connection is optional — POST failures (dashboard not running) are logged and swallowed, so the adapter still exits with the correct pass/fail code standalone.
+- Exit code reflects whether any `<testcase>` had a `<failure>` — usable directly in a shell pipeline (`tapflow flow run ... --junit r.xml && node tapflow-report-adapter.js --report r.xml --platform ios`), locally or, if a team chooses later, in CI.
 
-### `e2e-dashboard` (one small, additive change)
+### `e2e-dashboard` (one small, additive change — unchanged from the first draft)
 
-- `CATEGORIES` is currently dir + fixed-glob (`tests/<category>/*.spec.ts`). Extend each entry to carry its own file glob (default stays `*.spec.ts` — zero behavior change for existing Playwright-only projects), so `mobile-app-testing`'s adapt step can register `tests/mobile` → `*.flow.json`.
-- No other change: sidebar rendering, SSE broadcast, artifact panel, category tabs (already hidden when only one category has files, per existing behavior) all work unmodified because the event shape and file-grouping logic already generalize past Playwright specifically.
+- `CATEGORIES` entries gain an optional per-entry `ext` field (default stays `.spec.ts` — zero behavior change for existing Playwright-only projects), so `mobile-app-testing`'s adapt step can register a category pointed at `.tapflow/flows` (not under `tests/`, respecting tapflow's own file-location convention) with `ext: '.yaml'`.
+- No other change: sidebar rendering, SSE broadcast, artifact panel, category tabs all work unmodified because the event shape and file-grouping logic already generalize past both Playwright specifically and the `tests/` directory convention specifically (`CATEGORIES[].dir` is already an arbitrary absolute path, not hardcoded to live under `tests/`).
 
 ## Data Flow (one mobile flow run, end to end)
 
-`node tapflow-flow-runner.js checkout-happy-path` (or triggered from the dashboard's Run control once mobile shows as a category) → runner POSTs `begin` → for each step: tap/deeplink via tapflow REST → screenshot → vision-compare vs. reference (retry once on mismatch) → POST `testBegin`/`testEnd` tagged `browser: "mobile:ios"`, `file: "tests/mobile/checkout-happy-path.flow.json"` → `progress-server.js` applies via the existing `applyEvent()`, broadcasts over SSE → dashboard's mobile category tab shows live step-by-step progress, final pass/fail, and the diff screenshot on any failed step.
+`tapflow flow run .tapflow/flows/*.yaml --relay <url> --device "iPhone 15 Pro" --junit test-results/mobile/report.xml` (run from a terminal, or triggered from the dashboard once mobile shows as a category — TBD at implementation time whether the dashboard's Run control shells out to this two-command pipeline or a human runs it manually; not required for v1 per the "reporting, not triggering" scope) → `node tapflow-report-adapter.js --report test-results/mobile/report.xml --platform ios` → adapter parses XML, POSTs `begin` → per `<testcase>`: `testBegin` → `testEnd` (status/duration/error from the parsed `<failure>` element, if any) → `end` → `progress-server.js` applies via the existing `applyEvent()`, broadcasts over SSE → dashboard's mobile category tab shows each flow as a row with pass/fail and the JUnit failure message.
 
 ## Error Handling / Edge Cases
 
 - Relay/agent unreachable at record or run time → fail fast with a message pointing at tapflow's own `tapflow doctor`/`tapflow status` — this skill doesn't attempt to diagnose tapflow's own health.
-- Token/secret handling follows the same convention already used elsewhere in this repo's skills (env var / gitignored local config) — never written into the committed `.flow.json` files.
-- `assert-visible` mismatch after the one allowed retry → step fails, diff screenshot attached, flow marked failed — no silent pass.
-- A flow referencing a device/platform tapflow reports as unavailable (e.g. simulator not booted, agent offline) → runner fails that flow immediately with a clear device-unavailable message, not an indefinite "running" state.
-- `--ci` or non-interactive invocation attempts → runner refuses with a message explaining mobile flows are local/on-demand only (per explicit scope decision, not an oversight).
+- Token/secret handling follows the same convention already used elsewhere in this repo's skills (env var / gitignored local config) — never written into the committed `.tapflow/flows/*.yaml` files.
+- Malformed or missing JUnit XML at adapter run time → adapter fails loudly with a parse error and non-zero exit, never silently reports zero results as success.
+- A flow referencing a selector tapflow can't resolve, or a device that isn't booted → surfaces as a normal `assertVisible` failure / `tapflow flow run` non-zero exit and a `<failure>` element in the JUnit output — the adapter just relays it, no special-casing needed.
+- Dashboard unreachable when the adapter runs → POST failures are logged and swallowed; the adapter's own exit code (and the JUnit file on disk) remain the source of truth.
 
 ## Testing
 
-- `tapflow-flow-runner.js`'s pure logic — flow-file parsing/validation, `/event` payload construction, retry bookkeeping — gets `node:test` coverage mockable without a live tapflow relay, mirroring the existing `e2e-dashboard` test suite's style.
-- The MCP-driven recording phase and the `CATEGORIES` glob extension are verified manually against a real tapflow instance during implementation — inherently not unit-testable, since they depend on live vision judgment and a live relay/agent, same as how `e2e-dashboard`'s own template code is dev-verified today.
-- Backward-compat assertion for the `CATEGORIES` change: an existing single/multi-category Playwright-only project fixture behaves identically to today (default glob unchanged, no mobile tab appears without `tests/mobile/*.flow.json` present).
+- `tapflow-report-adapter.js`'s JUnit parsing and event-shape construction get full `node:test` coverage using literal XML fixture strings (well-known, simple, flat schema — no live tapflow instance, no live dashboard needed). The dashboard-POST path is tested against a local mock HTTP server, matching the pattern already used in `e2e-dashboard`'s own `progress-server-http.test.js`.
+- The MCP-driven recording phase and the `CATEGORIES` `ext` extension are verified manually against a real tapflow instance during implementation — inherently not unit-testable, since they depend on live device interaction and a live relay/agent, same as how `e2e-dashboard`'s own template code is dev-verified today.
+- Backward-compat assertion for the `CATEGORIES` change: an existing single/multi-category Playwright-only project fixture behaves identically to today (default `ext` unchanged, no mobile tab appears without `.tapflow/flows/*.yaml` present).
 
 ## Explicitly Out of Scope
 
 - Native/hybrid mobile app testing (installed `.app`/`.apk`, React Native, Flutter) — this design covers the user's *web app* rendered on real mobile OS simulators, not native app automation.
 - tapflow installation/provisioning (`tapflow setup`, agent bootstrapping) — assumed pre-existing infrastructure.
-- CI wiring of any kind.
-- Locator-based or DOM-level assertions for mobile flows — tapflow provides no such API; this is accepted as an inherent fidelity trade-off of the real-device approach, not something this design works around.
-- Non-interactive/batch flow recording, or importing flows authored directly in tapflow's own UI.
+- Generating a CI job for mobile flows in this repo's own skills — the underlying tooling (`tapflow flow run` + the JUnit adapter) is CI-compatible by construction, but wiring an actual CI workflow file is left to the team, not generated by this skill.
+- Any custom device-control, tap-replay, or screenshot-comparison code — all replaced by tapflow's own CLI/flow engine per the revision above.
+- Non-interactive/batch flow recording, or importing flows authored directly in tapflow's own UI (though nothing prevents a team from doing so — the adapter doesn't care how a flow file was authored).
 
 ## Next Session
 
-Per the brainstorming skill's process, this spec is written and self-reviewed; the remaining steps are:
+Per the brainstorming skill's process, this spec is written, revised against tapflow's real documented API, and self-reviewed; the remaining steps are:
 1. You review this spec file and confirm/request changes.
 2. Invoke `superpowers:writing-plans` to produce the task-by-task implementation plan.
 3. Execute the plan — implementation was explicitly deferred for this session ("no code change, just analysis").

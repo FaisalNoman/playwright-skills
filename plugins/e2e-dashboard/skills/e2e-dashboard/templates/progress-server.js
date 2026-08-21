@@ -158,32 +158,18 @@ function readBody(req) {
 // another guess-and-check round. We poll briefly because the Chromium
 // window doesn't exist yet at spawn time — it can take a second or two.
 // Computes window positions for N simultaneous Interactive-mode browser
-// windows, tiled within the same right-two-thirds screen region the
-// single-browser case has always used. count<=1 reproduces that exact
-// region unchanged (backward compatible); 2 splits it in half; 3+ tiles a
-// 2x2 grid, capped at 4 distinct slots — a 5th+ browser reuses slot 4
-// rather than growing the grid further (rare case, not worth more math).
-function computeTileLayout(count) {
-  const half = Math.floor(SCREEN_W / 3);
-  const regionX = half, regionY = 0, regionW = SCREEN_W - half, regionH = SCREEN_H;
-  if (count <= 1) return [{ x: regionX, y: regionY, w: regionW, h: regionH }];
-  if (count === 2) {
-    const w = Math.floor(regionW / 2);
-    return [
-      { x: regionX,     y: regionY, w,               h: regionH },
-      { x: regionX + w, y: regionY, w: regionW - w,   h: regionH },
-    ];
-  }
-  const w = Math.floor(regionW / 2), h = Math.floor(regionH / 2);
-  const slots = [
-    { x: regionX,     y: regionY,     w,             h },
-    { x: regionX + w, y: regionY,     w: regionW - w, h },
-    { x: regionX,     y: regionY + h, w,             h: regionH - h },
-    { x: regionX + w, y: regionY + h, w: regionW - w, h: regionH - h },
-  ];
-  const layout = [];
-  for (let i = 0; i < count; i++) layout.push(slots[Math.min(i, 3)]);
-  return layout;
+// windows. Every window now opens centered on the primary screen and then
+// maximizes (--start-maximized in playwright.config.ts), rather than tiling
+// into a fixed region — so every index gets the identical centered slot.
+// When 2+ browsers run together, each one still maximizes to fill the
+// screen and they stack on top of each other; the user alt-tabs between
+// them. x/y only matter for the brief instant before the window maximizes.
+function computeWindowLayout(count) {
+  const w = Math.min(1280, SCREEN_W), h = Math.min(800, SCREEN_H);
+  const x = Math.max(0, Math.floor((SCREEN_W - w) / 2));
+  const y = Math.max(0, Math.floor((SCREEN_H - h) / 2));
+  const slot = { x, y, w, h };
+  return Array.from({ length: Math.max(count, 1) }, () => ({ ...slot }));
 }
 
 function focusInteractiveBrowser(rootPid) {
@@ -218,10 +204,15 @@ function focusInteractiveBrowser(rootPid) {
     'for ($i = 0; $i -lt 20; $i++) {',
     '  Start-Sleep -Milliseconds 300',
     `  $pids = Get-DescendantPids ${rootPid}`,
-    "  $target = Get-Process -Id $pids -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and $_.ProcessName -like 'chrome*' } | Select-Object -First 1",
+    // Matches process names for every Chromium-family engine the dashboard can
+    // launch in Interactive Mode: bundled Chromium ('chrome*'), Microsoft Edge
+    // ('msedge*'), Opera ('opera*'), and Brave ('brave*'). Firefox/WebKit windows
+    // aren't matched here and won't be auto-focused — a pre-existing limitation,
+    // not something this filter widening changes.
+    "  $target = Get-Process -Id $pids -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and ($_.ProcessName -like 'chrome*' -or $_.ProcessName -like 'msedge*' -or $_.ProcessName -like 'opera*' -or $_.ProcessName -like 'brave*') } | Select-Object -First 1",
     '  if ($target) { Log "Found target after $($i+1) tries: PID=$($target.Id) Handle=$($target.MainWindowHandle) Title=$($target.MainWindowTitle)"; break }',
     '}',
-    'if (-not $target) { Log "FAILED: no chrome window found after 6s"; exit }',
+    'if (-not $target) { Log "FAILED: no browser window found after 6s"; exit }',
     '',
     '$fgThread = 0',
     '$fg = [Native.Win32Focus]::GetForegroundWindow()',
@@ -552,7 +543,7 @@ const server = http.createServer(async (req, res) => {
     if (skipSeed) env.SKIP_GLOBAL_SETUP = 'true'; // Remove if no globalSetup
     if (mode === 'interactive' && slowMo > 0) env.PLAYWRIGHT_SLOW_MO = String(slowMo);
     if (mode === 'interactive') {
-      const layout = computeTileLayout(selectedBrowsers.length);
+      const layout = computeWindowLayout(selectedBrowsers.length);
       const first = layout[0];
       // Legacy single-window vars — kept for backward compatibility with any
       // already-generated playwright.config.ts that only reads PW_WIN_X directly.
@@ -765,5 +756,5 @@ module.exports = {
   TOKEN, HOST, scanTestFiles, checkToken,
   isKnownSpecFile, isKnownSpecFileArg, hasShellMetachars,
   pendingRuns, activeCategories, CATEGORIES, BROWSERS,
-  computeTileLayout,
+  computeWindowLayout,
 };

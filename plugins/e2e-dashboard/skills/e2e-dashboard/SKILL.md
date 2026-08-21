@@ -130,15 +130,21 @@ Each detected `browser_targets` entry becomes one object:
 | `chromium` | `Chromium` | `🧭` |
 | `firefox` | `Firefox` | `🦊` |
 | `webkit` | `WebKit` | `🧭` (Safari-style compass, no distinct emoji) |
+| `edge` | `Edge` | `🌐` |
+| `opera` | `Opera` | `🎭` |
+| `brave` | `Brave` | `🦁` |
 | Mobile-profile projects (e.g. `mobile-chrome`, `mobile-safari`) | Title-cased display name (e.g. `Mobile Chrome`) — the `key` itself must stay the space-free project name, never the display label | `📱` |
 
-Example for a project with all three desktop engines:
+Example for a project with all six desktop engines:
 
 ```js
 const BROWSERS = [
   { key: 'chromium', label: 'Chromium', icon: '🧭' },
   { key: 'firefox',  label: 'Firefox',  icon: '🦊' },
   { key: 'webkit',   label: 'WebKit',   icon: '🧭' },
+  { key: 'edge',     label: 'Edge',     icon: '🌐' },
+  { key: 'opera',    label: 'Opera',    icon: '🎭' },
+  { key: 'brave',    label: 'Brave',    icon: '🦁' },
 ];
 ```
 
@@ -174,20 +180,28 @@ In the `reporter` array, add:
 ### Add launchOptions to `use` block
 
 ```ts
-launchOptions: {
-  slowMo: parseInt(process.env.PLAYWRIGHT_SLOW_MO || '0', 10),
-  args: process.env.PW_WIN_X != null ? [
-    `--window-position=${process.env.PW_WIN_X},${process.env.PW_WIN_Y || '0'}`,
-    `--window-size=${process.env.PW_WIN_W || '960'},${process.env.PW_WIN_H || '1080'}`,
-    // Windows treats a newly-launched automated Chromium window as
-    // "occluded" even though it's on top of nothing — Chrome then
-    // throttles/backgrounds it, which shows up as opening minimized.
-    '--disable-features=CalculateNativeWinOcclusion',
-  ] : [],
+use: {
+  // Interactive-mode (headed) runs get a null viewport so page content
+  // fills the real OS window once it maximizes, instead of staying
+  // clipped to Playwright's fixed 1280x720 default. Background/CI runs
+  // never set PW_WIN_X, so this stays undefined for them.
+  viewport: process.env.PW_WIN_X != null ? null : undefined,
+  launchOptions: {
+    slowMo: parseInt(process.env.PLAYWRIGHT_SLOW_MO || '0', 10),
+    args: process.env.PW_WIN_X != null ? [
+      // Center the brief pre-maximize position, then maximize.
+      `--window-position=${process.env.PW_WIN_X},${process.env.PW_WIN_Y || '0'}`,
+      '--start-maximized',
+      // Windows treats a newly-launched automated Chromium window as
+      // "occluded" even though it's on top of nothing — Chrome then
+      // throttles/backgrounds it, which shows up as opening minimized.
+      '--disable-features=CalculateNativeWinOcclusion',
+    ] : [],
+  },
 },
 ```
 
-If `launchOptions` already exists in `use`, merge by adding `slowMo` and the `args` array without removing existing properties.
+If `launchOptions`/`viewport` already exist in `use`, merge by adding these properties without removing existing ones.
 
 ---
 
@@ -228,4 +242,6 @@ Report back:
 | Edits not saving | Check the console for a "Save failed" alert with the server's error message — usually a permissions issue on the file, or the file was deleted/moved after the panel loaded. |
 | Saved content looks wrong after re-opening | The save is a full-file overwrite with no conflict detection — if the file was also edited outside the dashboard (IDE, git) between load and save, the dashboard's version wins. Re-open (📄 View source) before editing if you suspect the file changed elsewhere. |
 | Browser dropdown not showing | By design when only one browser is configured — `GET /browsers` returns a single entry and the dropdown stays hidden. Configure a second browser target via `/playwright-setup` to see it appear. |
-| Interactive-mode windows overlapping | Confirm `playwright.config.ts` was regenerated with the per-project `windowArgsForProject()` helper — an older single-project config only reads the legacy `PW_WIN_X` vars and positions every window identically. |
+| Interactive-mode windows overlapping | **By design** — every window opens centered then maximized (`--start-maximized`), so running 2+ browsers together stacks their windows on top of each other; alt-tab (or the taskbar) to switch between them. If instead a window opens un-maximized and mispositioned, confirm `playwright.config.ts` was regenerated with the per-project `windowArgsForProject()` helper and has `viewport: process.env.PW_WIN_X != null ? null : undefined` in `use` — an older config only reads the legacy `PW_WIN_X`/`PW_WIN_W`/`PW_WIN_H` vars and both tiles by size and clips content to the default 1280x720 viewport. |
+| Edge/Opera/Brave window doesn't come to the foreground in Interactive Mode | The focus helper matches on process name; confirm the adapted `progress-server.js` includes `msedge`/`opera`/`brave` alongside `chrome*` in `focusInteractiveBrowser()`'s PowerShell process filter (see template) — an unadapted copy only recognizes Chromium's own process name. |
+| Opera/Brave project fails with "no such file" at launch | Its `executablePath` didn't resolve — either it's not installed at a default location, or `PW_OPERA_PATH`/`PW_BRAVE_PATH` points at a nonexistent file. Set the env var to the real executable path. |

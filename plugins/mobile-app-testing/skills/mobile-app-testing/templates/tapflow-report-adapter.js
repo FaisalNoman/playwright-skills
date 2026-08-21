@@ -86,13 +86,17 @@ function postEvent(dashboardUrl, event) {
     let url;
     try { url = new URL('/event', dashboardUrl); } catch { resolve(); return; }
     const body = JSON.stringify(event);
-    const req = http.request(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-    }, res => { res.resume(); resolve(); });
-    req.on('error', () => resolve()); // dashboard is optional — never fail the run over this
-    req.write(body);
-    req.end();
+    try {
+      const req = http.request(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      }, res => { res.resume(); resolve(); });
+      req.on('error', () => resolve()); // dashboard is optional — never fail the run over this
+      req.write(body);
+      req.end();
+    } catch {
+      resolve(); // e.g. a non-http: dashboardUrl (https:, etc.) — never fail the run over this
+    }
   });
 }
 

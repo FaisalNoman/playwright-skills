@@ -121,6 +121,21 @@ test('run() resolves without throwing when the dashboard is unreachable', async 
   assert.deepEqual(result, { total: 1, failed: 0 });
 });
 
+test('postEvent resolves without throwing for a non-http: dashboardUrl (e.g. https:)', async () => {
+  const { postEvent } = require(ADAPTER);
+  await assert.doesNotReject(postEvent('https://127.0.0.1:1', { type: 'begin' }));
+});
+
+test('run() exits based on JUnit content, not on the dashboard URL\'s protocol', async () => {
+  const { run } = require(ADAPTER);
+  const result = await run({
+    reportPath: PASSING_FIXTURE,
+    platform: 'ios',
+    dashboardUrl: 'https://127.0.0.1:1',
+  });
+  assert.deepEqual(result, { total: 1, failed: 0 });
+});
+
 test('parseArgs requires --report and --platform', () => {
   const { parseArgs } = require(ADAPTER);
   assert.throws(() => parseArgs(['--platform', 'ios']), /--report/);

@@ -4,7 +4,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILLS=(playwright-setup e2e-dashboard)
+SKILLS=(playwright-setup e2e-dashboard mobile-app-testing)
 TARGET="${1:-}"
 
 copy_skill_assets() {
@@ -23,20 +23,21 @@ case "$TARGET" in
     echo "  /plugin marketplace add FaisalNoman/playwright-skills"
     echo "  /plugin install playwright-setup@playwright-skills"
     echo "  /plugin install e2e-dashboard@playwright-skills"
+    echo "  /plugin install mobile-app-testing@playwright-skills"
     ;;
   codex)
     CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
     copy_skill_assets "$CODEX_HOME/playwright-skills"
     mkdir -p "$CODEX_HOME/prompts"
     cp "$REPO_DIR"/codex/prompts/*.md "$CODEX_HOME/prompts/"
-    echo "Installed to $CODEX_HOME. Use slash commands: /playwright-setup  /e2e-dashboard"
+    echo "Installed to $CODEX_HOME. Use slash commands: /playwright-setup  /e2e-dashboard  /mobile-app-testing"
     ;;
   cursor)
     # Project-local install. Run from your project root.
     copy_skill_assets "$PWD/.cursor/playwright-skills"
     mkdir -p "$PWD/.cursor/commands"
     cp "$REPO_DIR"/cursor/commands/*.md "$PWD/.cursor/commands/"
-    echo "Installed to $PWD/.cursor. Use: /playwright-setup  /e2e-dashboard in Cursor."
+    echo "Installed to $PWD/.cursor. Use: /playwright-setup  /e2e-dashboard  /mobile-app-testing in Cursor."
     ;;
   *)
     echo "Usage: ./install.sh [claude|codex|cursor]"

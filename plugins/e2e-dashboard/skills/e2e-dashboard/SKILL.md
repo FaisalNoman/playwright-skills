@@ -93,6 +93,8 @@ Each detected `category_dirs` entry becomes one object in the array:
 
 `dir` is built the same way `ROOT` is in `%%ADAPT_ROOT%%` — always `path.join(ROOT, 'tests', '<name>')`. `prefix` is always `tests/<name>` (POSIX, no leading/trailing slash).
 
+Each entry also accepts an optional `ext` field (e.g. `ext: '.yaml'`) — omit it to use the project's `SPEC_EXT` (the normal case for Playwright spec categories). Set it explicitly only for a category populated by a non-Playwright tool (for example, the `mobile-app-testing` skill's tapflow flow files).
+
 | Detected dir name | `label` | `icon` |
 |---|---|---|
 | `e2e` | `E2E / Smoke` | `🧭` |

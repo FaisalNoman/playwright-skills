@@ -167,3 +167,50 @@ describe('multi-category CATEGORIES support', () => {
     assert.deepEqual(mod.activeCategories().map(c => c.key).sort(), ['e2e', 'security']);
   });
 });
+
+describe('per-category ext override', () => {
+  let extRoot;
+
+  before(() => {
+    // A category that isn't Playwright specs at all (e.g. a non-.spec.ts
+    // tool's output) must be discoverable via an explicit per-entry `ext`,
+    // without changing the default `.spec.ts` behavior of sibling categories.
+    extRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-dash-ext-'));
+    fs.mkdirSync(path.join(extRoot, 'tests', 'e2e'), { recursive: true });
+    fs.mkdirSync(path.join(extRoot, 'mobile-flows'), { recursive: true });
+    fs.mkdirSync(path.join(extRoot, 'tests', 'reporters'), { recursive: true });
+    fs.copyFileSync(FIXTURE_SPEC, path.join(extRoot, 'tests', 'e2e', 'example.spec.ts'));
+    fs.writeFileSync(path.join(extRoot, 'mobile-flows', 'checkout.yaml'), 'name: checkout\nsteps: []\n');
+
+    const src = fs.readFileSync(TEMPLATE, 'utf8');
+    const adapted = src.replace(
+      /^const CATEGORIES.*%%ADAPT_CATEGORIES%%.*$/m,
+      `const CATEGORIES = [
+        { key: 'e2e',    label: 'E2E / Smoke', icon: '🧭', dir: path.join(ROOT, 'tests', 'e2e'),  prefix: 'tests/e2e' },
+        { key: 'mobile', label: 'Mobile',      icon: '📱', dir: path.join(ROOT, 'mobile-flows'),   prefix: 'mobile-flows', ext: '.yaml' },
+      ];`
+    );
+    assert.notEqual(adapted, src, 'the %%ADAPT_CATEGORIES%% marker line must exist for this substitution to work');
+    fs.writeFileSync(path.join(extRoot, 'tests', 'reporters', 'progress-server.js'), adapted);
+  });
+
+  after(() => {
+    fs.rmSync(extRoot, { recursive: true, force: true });
+  });
+
+  test('scanTestFiles uses the default SPEC_EXT for a category with no ext override', () => {
+    const mod = require(path.join(extRoot, 'tests', 'reporters', 'progress-server.js'));
+    assert.ok(mod.scanTestFiles().includes('tests/e2e/example.spec.ts'));
+  });
+
+  test("scanTestFiles uses a category's own ext override instead of SPEC_EXT", () => {
+    const mod = require(path.join(extRoot, 'tests', 'reporters', 'progress-server.js'));
+    assert.ok(mod.scanTestFiles().includes('mobile-flows/checkout.yaml'));
+  });
+
+  test('a category with an ext override never matches files with the default SPEC_EXT', () => {
+    fs.writeFileSync(path.join(extRoot, 'mobile-flows', 'stray.spec.ts'), '// not a flow file');
+    const mod = require(path.join(extRoot, 'tests', 'reporters', 'progress-server.js'));
+    assert.ok(!mod.scanTestFiles().includes('mobile-flows/stray.spec.ts'));
+  });
+});

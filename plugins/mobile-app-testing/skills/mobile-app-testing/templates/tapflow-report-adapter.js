@@ -33,7 +33,7 @@ function parseJUnitXml(xml) {
     let failure = null;
     if (failureMatch) {
       const fAttrs = parseAttrs(failureMatch[1]);
-      const text = (failureMatch[2] || '').trim();
+      const text = decodeXmlEntities((failureMatch[2] || '').trim());
       failure = { message: (fAttrs.message || text || 'assertion failed').slice(0, 600) };
     }
     cases.push({

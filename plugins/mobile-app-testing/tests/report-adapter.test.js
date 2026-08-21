@@ -44,3 +44,10 @@ test('falls back to the failure element\'s text when no message attribute is pre
   const cases = parseJUnitXml(xml);
   assert.equal(cases[0].failure.message, 'plain text failure');
 });
+
+test('decodes XML entities in the failure element\'s text content, not just the message attribute', () => {
+  const { parseJUnitXml } = require(ADAPTER);
+  const xml = `<testsuites><testsuite name="tapflow"><testcase name="x" time="1.0"><failure>at Foo.&lt;init&gt;(Foo.java:10)</failure></testcase></testsuite></testsuites>`;
+  const cases = parseJUnitXml(xml);
+  assert.equal(cases[0].failure.message, 'at Foo.<init>(Foo.java:10)');
+});

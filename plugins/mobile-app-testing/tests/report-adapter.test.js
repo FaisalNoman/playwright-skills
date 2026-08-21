@@ -136,6 +136,44 @@ test('run() exits based on JUnit content, not on the dashboard URL\'s protocol',
   assert.deepEqual(result, { total: 1, failed: 0 });
 });
 
+test('parseJUnitXml throws on input with no <testsuite> tag (malformed/empty report)', () => {
+  const { parseJUnitXml } = require(ADAPTER);
+  assert.throws(() => parseJUnitXml('this is not xml at all {{{ broken'), /testsuite/i);
+});
+
+test('parseJUnitXml does not throw for a valid <testsuite> with zero testcases', () => {
+  const { parseJUnitXml } = require(ADAPTER);
+  const cases = parseJUnitXml('<testsuites><testsuite name="tapflow" tests="0"></testsuite></testsuites>');
+  assert.deepEqual(cases, []);
+});
+
+test('run() exits non-zero (via a thrown parse error) for malformed JUnit input', async () => {
+  const { run } = require(ADAPTER);
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  const badReport = path.join(os.tmpdir(), `bad-report-${Date.now()}.xml`);
+  fs.writeFileSync(badReport, 'this is not xml at all {{{ broken');
+  await assert.rejects(run({ reportPath: badReport, platform: 'ios', dashboardUrl: 'http://127.0.0.1:1' }), /testsuite/i);
+  fs.unlinkSync(badReport);
+});
+
+test('parseJUnitXml treats a <error> element the same as <failure>', () => {
+  const { parseJUnitXml } = require(ADAPTER);
+  const xml = `<testsuites><testsuite name="tapflow"><testcase name="crash-case" time="2.0"><error message="Unexpected exception">Native crash in agent</error></testcase></testsuite></testsuites>`;
+  const cases = parseJUnitXml(xml);
+  assert.equal(cases.length, 1);
+  assert.notEqual(cases[0].failure, null);
+  assert.ok(cases[0].failure.message.includes('Unexpected exception'));
+});
+
+test('a <failure> takes precedence over a co-present <error> on the same testcase (defensive, unlikely in practice)', () => {
+  const { parseJUnitXml } = require(ADAPTER);
+  const xml = `<testsuites><testsuite name="tapflow"><testcase name="x" time="1.0"><failure message="assertion failed">assert</failure><error message="also an error">err</error></testcase></testsuite></testsuites>`;
+  const cases = parseJUnitXml(xml);
+  assert.ok(cases[0].failure.message.includes('assertion failed'));
+});
+
 test('parseArgs requires --report and --platform', () => {
   const { parseArgs } = require(ADAPTER);
   assert.throws(() => parseArgs(['--platform', 'ios']), /--report/);

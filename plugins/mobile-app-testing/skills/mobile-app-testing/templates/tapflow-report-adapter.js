@@ -22,20 +22,29 @@ function parseAttrs(attrString) {
   return attrs;
 }
 
+function extractFailureLike(body, tagName) {
+  const re = new RegExp(`<${tagName}\\b([^>]*?)(?:\\/>|>([\\s\\S]*?)<\\/${tagName}>)`);
+  const match = body.match(re);
+  if (!match) return null;
+  const attrs = parseAttrs(match[1]);
+  const text = decodeXmlEntities((match[2] || '').trim());
+  return { message: (attrs.message || text || 'assertion failed').slice(0, 600) };
+}
+
 function parseJUnitXml(xml) {
+  if (!/<testsuite\b/.test(xml)) {
+    throw new Error('No <testsuite> found in JUnit XML — report is malformed or empty');
+  }
   const cases = [];
   const caseRe = /<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g;
   let m;
   while ((m = caseRe.exec(xml))) {
     const attrs = parseAttrs(m[1]);
     const body = m[2] || '';
-    const failureMatch = body.match(/<failure\b([^>]*?)(?:\/>|>([\s\S]*?)<\/failure>)/);
-    let failure = null;
-    if (failureMatch) {
-      const fAttrs = parseAttrs(failureMatch[1]);
-      const text = decodeXmlEntities((failureMatch[2] || '').trim());
-      failure = { message: (fAttrs.message || text || 'assertion failed').slice(0, 600) };
-    }
+    // JUnit distinguishes <failure> (assertion failure) from <error>
+    // (infrastructure/exception failure). Either one fails the testcase;
+    // <failure> takes precedence if both are somehow present.
+    const failure = extractFailureLike(body, 'failure') || extractFailureLike(body, 'error');
     cases.push({
       name: attrs.name || 'unnamed',
       classname: attrs.classname || '',

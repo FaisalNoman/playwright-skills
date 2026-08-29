@@ -184,6 +184,12 @@ test('parseArgs requires --report and --platform', () => {
   assert.equal(args.dashboardUrl, 'http://127.0.0.1:7373');
 });
 
+test('parseArgs rejects a --platform value that is not ios or android', () => {
+  const { parseArgs } = require(ADAPTER);
+  assert.throws(() => parseArgs(['--report', 'x.xml', '--platform', 'iOS']), /--platform must be "ios" or "android"/);
+  assert.throws(() => parseArgs(['--report', 'x.xml', '--platform', 'windows']), /--platform must be "ios" or "android"/);
+});
+
 test('CLI exits 0 for a report with no failures', () => {
   const result = spawnSync(process.execPath, [ADAPTER, '--report', PASSING_FIXTURE, '--platform', 'ios', '--dashboard-url', 'http://127.0.0.1:1'], { encoding: 'utf8' });
   assert.equal(result.status, 0);

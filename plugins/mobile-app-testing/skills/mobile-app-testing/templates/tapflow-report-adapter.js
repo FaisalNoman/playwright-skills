@@ -132,6 +132,9 @@ function parseArgs(argv) {
   }
   if (!args.reportPath) throw new Error('--report <path/to/report.xml> is required');
   if (!args.platform) throw new Error('--platform <ios|android> is required');
+  if (args.platform !== 'ios' && args.platform !== 'android') {
+    throw new Error(`--platform must be "ios" or "android", got "${args.platform}"`);
+  }
   return args;
 }
 

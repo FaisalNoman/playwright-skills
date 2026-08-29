@@ -64,7 +64,7 @@ Scan the project the same way `playwright-setup` does (routes, page components, 
 For each selected journey:
 
 1. Call the MCP tools `list_devices`, then `boot_device` (or `connect_device` if already booted) for the platform/device the user wants — ask once per journey, or reuse the prior answer if unchanged.
-2. Call `launch_app` (or `install_app` first, if the build isn't on this device yet — ask the user for the build path/URL).
+2. Call `launch_app` (or `install_app` first, if the build isn't on this device yet — reuse the build file path from Phase 1b if this is a native app that already went through it, otherwise ask the user for the build path/URL).
 3. Loop: call `screenshot` and `query_ui_tree` to see the current state, decide the next action, call the matching MCP tool (`tap`, `swipe`, `type_text`, `press_key`), then describe what happened in one line and ask the user to confirm it matches intent before recording the step. If they say it's wrong, re-navigate or ask what should have happened instead of recording a bad step.
 4. When the user confirms a screen state the flow should assert on going forward (e.g. "yes, that's the confirmation we want to check for"), record an `assertVisible` step targeting that element's resolved selector — prefer `id` when `query_ui_tree` exposes a stable identifier, fall back to `label` otherwise.
 5. When the journey is complete, write the accumulated steps as `{flows_dir}/{journey-name}.yaml`, in tapflow's own format:

@@ -1,19 +1,20 @@
 ---
 name: mobile-app-testing
-description: Record real-device (iOS Simulator / Android emulator) test flows for your web app via tapflow's MCP server, replay them with tapflow's own CLI, and stream results into an installed e2e-dashboard.
+description: Record real-device (iOS Simulator / Android emulator) test flows for your app (web or native) via tapflow's MCP server, replay them with tapflow's own CLI, and stream results into an installed e2e-dashboard.
 ---
 
 # Mobile App Testing (tapflow) Installer
 
 ## What This Skill Does
 
-Records real-device test flows for your web app against a self-hosted [tapflow](https://www.tapflow.dev) relay, using tapflow's own YAML flow format and `tapflow flow run` CLI — not a custom automation engine. Copies a small report adapter that streams results into an already-installed `e2e-dashboard` as a new category tab.
+Records real-device test flows for your app — web or native — against a self-hosted [tapflow](https://www.tapflow.dev) relay, using tapflow's own YAML flow format and `tapflow flow run` CLI — not a custom automation engine. Copies a small report adapter that streams results into an already-installed `e2e-dashboard` as a new category tab.
 
 **Prerequisites (not installed or provisioned by this skill):**
 - A running tapflow relay + macOS agent (`tapflow start`, or a team-operated relay) — see https://www.tapflow.dev/guide/getting-started
 - The `tapflow` CLI available on PATH wherever flows will be run (`npm install -g tapflow`)
 - tapflow's MCP server connected to this session (`@tapflowio/mcp-server`, see https://www.tapflow.dev/guide/mcp-server) — required only for the recording phase, not for running already-recorded flows
 - Node.js ≥ 18, for the report adapter script only
+- Device matrix is limited to whatever simulators/emulators are booted on the connected Mac agent — tapflow has no cloud device catalog. Testing multiple OS versions means provisioning multiple local runtimes yourself, not picking from a dropdown.
 
 ---
 
@@ -23,6 +24,7 @@ Ask the user in one message:
 
 | Value | How to find | Default |
 |-------|-------------|---------|
+| `app_type` | Ask directly: "web app or native app?" | none — required |
 | `relay_url` | Ask directly | none — required |
 | `relay_token` | Ask directly (a Personal Access Token from tapflow's Settings → Tokens) | none — required |
 | `app_id` | App identifier used in tapflow flow YAML (`appId`) — check the project's build config (iOS bundle ID / Android `applicationId`) or ask | ask if not found |
@@ -30,6 +32,8 @@ Ask the user in one message:
 | `dashboard_installed` | Does a `progress-server.js` from `e2e-dashboard` already exist in this project? Glob for `**/progress-server.js` containing the string `E2E Dashboard`. | if absent, skip Phase 4 |
 
 Verify connectivity before continuing: `GET {relay_url}/api/v1/auth/me` with header `Authorization: Bearer {relay_token}`. A non-2xx response means stop and report the failure clearly — do not proceed to recording against an unreachable relay. Point the user at `tapflow doctor` / `tapflow status` for diagnosis; this skill does not diagnose tapflow's own health.
+
+If `app_type` is `native`, continue to Phase 1b below before Phase 2. If `app_type` is `web`, skip directly to Phase 2 — nothing else in Phase 1 changes for the web path.
 
 ---
 

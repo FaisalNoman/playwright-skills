@@ -37,6 +37,22 @@ If `app_type` is `native`, continue to Phase 1b below before Phase 2. If `app_ty
 
 ---
 
+## Phase 1b — Build Upload (native apps only — skip entirely if `app_type` is `web`)
+
+Ask for the build file path, if not already provided (and platform, if not inferable from the file extension: `.app.zip` / `.tar.gz` / `.tgz` → iOS, `.apk` → Android).
+
+1. **Find or create the app entry.** `GET {relay_url}/api/v1/apps` with header `Authorization: Bearer {relay_token}`. Match an entry whose `bundle_id_key` equals the project's bundle ID / `applicationId` (from `app_id`, gathered in Phase 1).
+   - Match found → use its `id` as `app_id` for the next step.
+   - No match → `POST {relay_url}/api/v1/apps` with JSON body `{ "name": "<app display name>", "bundle_id_key": "<bundle id>", "platform": "ios" | "android" | "both" }` → use the returned `id`.
+   - More than one match for the same `bundle_id_key` → stop and ask the user which one to use; never pick one silently.
+2. **Upload the build.** `POST {relay_url}/api/v1/builds` — multipart form fields: `file` (the build binary), `app_id` (from step 1), `platform`, optionally `status` (one of `Backlog` / `In Progress` / `Done` / `Rejected`) and `label` (free-text, e.g. a branch name). Same `Authorization: Bearer {relay_token}` header.
+   - Non-2xx response → stop, report the failure clearly (same fail-fast pattern as Phase 1's connectivity check). Do not proceed to Phase 2 with an unresolved build state.
+3. **Report back.** Tell the user the response fields in one message: `id`, `version_name`, `build_number`, `status_label`, `uploaded_at`. This build is now tracked in tapflow's own App Center (visible in tapflow's dashboard too, not just here).
+
+**This build id is not used anywhere else in this skill.** Phase 3's `install_app` call stays exactly as documented there — call it, observe what it actually accepts, adapt. tapflow's own docs call its MCP server "experimental" with unconfirmed parameter shapes; this skill does not guess at a `build_id` parameter that was never verified against a live instance.
+
+---
+
 ## Phase 2 — Choose Journeys
 
 Scan the project the same way `playwright-setup` does (routes, page components, existing specs in `tests/e2e/`) to propose a short list of candidate mobile journeys (e.g. "Login", "Checkout", "Search"). Present as a multi-select. Recording is one journey at a time — there is no batch or headless recording mode.

@@ -900,19 +900,31 @@ explicitly per the approved design spec."
 
 On a Mac with Xcode + iOS Simulator installed, follow tapflow's own Quick Start: `npm install -g tapflow`, `tapflow setup`, `tapflow start`, create the admin account, note the relay URL (`http://localhost:4000` by default) and create a Personal Access Token in Settings → Tokens.
 
-- [ ] **Step 2: Install both skills into a scratch project**
+- [ ] **Step 2: Verify PAT scope requirements for App Center endpoints**
+
+tapflow's docs name exactly two PAT scopes (`builds:write` — "upload builds, for CI/CD pipelines"; `view` — "read and device-stream access") plus `agent` (from the repo README, for remote agent connections), and separately state that `POST/PATCH/DELETE /api/v1/apps` "Requires Admin or Developer role" — but never clarify whether that role check applies to the PAT's own scope, the token owner's account role, or both. `POST /api/v1/builds` (the actual upload) states no scope requirement at all. This is unverified and directly affects Phase 1b (native app Build Upload), which calls both `POST /api/v1/apps` (idempotent app creation) and `POST /api/v1/builds` (the upload) with the same token.
+
+Create two PATs in Settings → Tokens — one scoped `builds:write` only, one scoped `view` only (or whatever scope combinations the UI actually offers) — and confirm empirically:
+- Does a `builds:write`-scoped PAT succeed on `POST /api/v1/builds`? (expected: yes, per its stated purpose)
+- Does that same `builds:write`-scoped PAT succeed on `GET /api/v1/apps` and `POST /api/v1/apps`, or does it 401/403 for lacking an app-management scope/role?
+- Does a `view`-scoped PAT succeed on any of the three endpoints, or is it read-only as its description implies?
+- If `POST /api/v1/apps` truly gates on account role rather than PAT scope, does a PAT issued by a Developer-role account succeed where one from a QA/Viewer-role account fails, regardless of the PAT's own scope string?
+
+Record the actual working scope/role combination in SKILL.md's Phase 1 (`relay_token` row) and Phase 1b, replacing the current unqualified "a Personal Access Token from tapflow's Settings → Tokens" wording with the specific scope needed for the native path.
+
+- [ ] **Step 3: Install both skills into a scratch project**
 
 In a throwaway web-app project (or a fresh scaffold), run `/e2e-dashboard` first (if not already installed), confirm the dashboard starts and shows the existing Playwright suite normally. Then run `/mobile-app-testing`.
 
-- [ ] **Step 3: Verify connectivity failure handling**
+- [ ] **Step 4: Verify connectivity failure handling**
 
 During the Phase 1 interview, deliberately supply an incorrect `relay_token` first. Confirm the skill stops with a clear error message and does not proceed to Phase 2/3 recording.
 
-- [ ] **Step 4: Verify recording produces a correct flow file**
+- [ ] **Step 5: Verify recording produces a correct flow file**
 
 Provide the correct token, pick one real journey, and let Claude record it against a real booted iOS Simulator. After recording, open the written `.tapflow/flows/<journey-name>.yaml` and confirm every step matches what was actually tapped/typed during the session, and that no step contains raw coordinates.
 
-- [ ] **Step 5: Verify the real replay + adapter pipeline**
+- [ ] **Step 6: Verify the real replay + adapter pipeline**
 
 Run the two commands from Phase 5 for real:
 ```sh
@@ -921,21 +933,23 @@ node tests/reporters/tapflow-report-adapter.js --report test-results/mobile/repo
 ```
 Confirm `tapflow flow run`'s exit code matches whether the flow actually passed on the device, and the adapter's own exit code matches the JUnit report's content.
 
-- [ ] **Step 6: Verify dashboard display**
+- [ ] **Step 7: Verify dashboard display**
 
-With the dashboard running, re-run the adapter command from Step 5. Confirm a "Mobile (tapflow)" category tab appears, shows one row per recorded flow, and that a deliberately-broken flow (edit one `assertVisible` to target a nonexistent label, re-run) shows as failed with the correct error message surfaced from the JUnit `<failure>` text.
+With the dashboard running, re-run the adapter command from Step 6. Confirm a "Mobile (tapflow)" category tab appears, shows one row per recorded flow, and that a deliberately-broken flow (edit one `assertVisible` to target a nonexistent label, re-run) shows as failed with the correct error message surfaced from the JUnit `<failure>` text.
 
-- [ ] **Step 7: Verify graceful degradation without the dashboard**
+- [ ] **Step 8: Verify graceful degradation without the dashboard**
 
 Stop the dashboard, re-run the adapter command. Confirm it still exits with the correct code and logs (not throws) about the dashboard being unreachable.
 
-- [ ] **Step 8: Verify zero impact on Playwright-only projects**
+- [ ] **Step 9: Verify zero impact on Playwright-only projects**
 
 In a separate project that has `e2e-dashboard` installed but never had `mobile-app-testing` run against it, confirm the sidebar, category tabs, and full `node --test` suite (including Task 1's changes) behave exactly as before — no "Mobile" tab, no errors.
 
-- [ ] **Step 9: Record findings**
+- [ ] **Step 10: Record findings**
 
-If any step surfaces a real bug (not a documentation gap), file it as a follow-up task before considering this feature done — this plan's automated tests cover the parsing/event/CLI logic exhaustively, but the MCP recording flow and the live CATEGORIES text-edit in Phase 4 have never executed against real tapflow infrastructure until this task.
+If any step surfaces a real bug (not a documentation gap), file it as a follow-up task before considering this feature done — this plan's automated tests cover the parsing/event/CLI logic exhaustively, but the MCP recording flow, the PAT scope requirements (Step 2), and the live CATEGORIES text-edit in Phase 4 have never executed against real tapflow infrastructure until this task.
+
+Also verify, while a real instance is up (folded in from the native-app-testing extension's deferred findings, not worth a separate task): whether a JUnit `<testcase>` element's `name` attribute matches the on-disk flow filename (affects the adapter's `file` field in dashboard events), and whether `POST /api/v1/apps`'s `platform` field actually accepts `"both"` as documented or only `ios`/`android`.
 
 ---
 

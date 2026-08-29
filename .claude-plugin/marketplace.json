@@ -22,6 +22,13 @@
       "description": "Install a real-time Playwright E2E test dashboard (live SSE progress, 14 features) into any project.",
       "version": "1.0.0",
       "author": { "name": "FaisalNoman" }
+    },
+    {
+      "name": "mobile-app-testing",
+      "source": "./plugins/mobile-app-testing",
+      "description": "Record and run real-device (iOS/Android) mobile test flows via tapflow, reported into e2e-dashboard.",
+      "version": "1.0.0",
+      "author": { "name": "FaisalNoman" }
     }
   ]
 }

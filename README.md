@@ -8,6 +8,7 @@ Two Playwright E2E skills for AI coding agents, shippable to **Claude Code**, **
 |-------|--------------|
 | **playwright-setup** | Scans project docs/source, interviews you, generates a complete Playwright test suite (E2E/Smoke, plus optional Security-smoke and Performance-smoke) + config from scratch. |
 | **e2e-dashboard** | Installs a real-time Playwright test dashboard (live SSE progress, 24 features, category tabs when multiple test types are installed, inline spec source view/edit-and-save) into any project. |
+| **mobile-app-testing** | Records real-device (iOS Simulator / Android emulator) test flows for your web app via [tapflow](https://www.tapflow.dev), and streams results into the e2e-dashboard. |
 
 ---
 
@@ -17,9 +18,10 @@ Two Playwright E2E skills for AI coding agents, shippable to **Claude Code**, **
 /plugin marketplace add FaisalNoman/playwright-skills
 /plugin install playwright-setup@playwright-skills
 /plugin install e2e-dashboard@playwright-skills
+/plugin install mobile-app-testing@playwright-skills
 ```
 
-Then trigger with `/playwright-setup` or `/e2e-dashboard`.
+Then trigger with `/playwright-setup`, `/e2e-dashboard`, or `/mobile-app-testing`.
 
 ## Codex CLI
 
@@ -32,7 +34,7 @@ git clone https://github.com/FaisalNoman/playwright-skills && cd playwright-skil
 ./install.ps1 codex
 ```
 
-Then use `/playwright-setup` or `/e2e-dashboard` in Codex.
+Then use `/playwright-setup`, `/e2e-dashboard`, or `/mobile-app-testing` in Codex.
 
 ## Cursor
 
@@ -45,7 +47,7 @@ git clone https://github.com/FaisalNoman/playwright-skills /tmp/playwright-skill
 /tmp/playwright-skills/install.ps1 cursor
 ```
 
-Then use `/playwright-setup` or `/e2e-dashboard` in Cursor.
+Then use `/playwright-setup`, `/e2e-dashboard`, or `/mobile-app-testing` in Cursor.
 
 ---
 

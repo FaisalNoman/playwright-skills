@@ -1,0 +1,9 @@
+{
+  "name": "mobile-app-testing",
+  "version": "1.0.0",
+  "description": "Test your web app on real iOS Simulator / Android emulator sessions via tapflow, alongside your existing Playwright suite.",
+  "author": { "name": "FaisalNoman", "url": "https://github.com/FaisalNoman" },
+  "homepage": "https://github.com/FaisalNoman/playwright-skills",
+  "license": "MIT",
+  "keywords": ["playwright", "mobile", "tapflow", "testing", "ios", "android", "skill"]
+}

@@ -80,7 +80,8 @@ function scanTestFiles() {
   for (const cat of CATEGORIES) {
     let entries;
     try { entries = fs.readdirSync(cat.dir); } catch { continue; }
-    for (const f of entries.filter(x => x.endsWith(SPEC_EXT)).sort()) {
+    const ext = cat.ext || SPEC_EXT;
+    for (const f of entries.filter(x => x.endsWith(ext)).sort()) {
       out.push(`${cat.prefix}/${f}`);
     }
   }

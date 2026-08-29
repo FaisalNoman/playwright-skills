@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="tapflow" tests="1" failures="0" time="6.2">
+    <testcase name="checkout-happy-path" classname="tapflow" time="6.2"/>
+  </testsuite>
+</testsuites>

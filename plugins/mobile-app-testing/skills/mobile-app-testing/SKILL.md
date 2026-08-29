@@ -82,6 +82,8 @@ For each selected journey:
    Use the bare-string selector form (`tapOn: "Sign in"`) when the element's visible label is what was tapped; use `{ id: ... }` when `query_ui_tree` returned a stable identifier; add `timeout` on `assertVisible`/`assertNotVisible` only when the default felt too short during recording. Never write raw tap coordinates — always a resolved selector.
 6. Call `disconnect_device` (and `shutdown_device`, if the user doesn't want the simulator left running) once all journeys for this session are recorded.
 
+**Native-only: permission and onboarding dialogs.** These have no web equivalent. Record them as ordinary `tapOn`/`assertVisible` steps — same mechanism as any other element, resolved via `query_ui_tree` like step 3 above. Do not invent conditional syntax like "tap only if visible": tapflow's flow format has no such step type, and `tapflow flow run` would not understand it. If a dialog appeared during recording, it becomes a real step in the flow; if it doesn't reliably reappear on replay (OS-level permission grants often outlive `clearState`, which resets app data, not OS consent state), that's a known flakiness source — see Common Pitfalls.
+
 ---
 
 ## Phase 4 — Wire Into e2e-dashboard (only if `dashboard_installed`)
@@ -127,3 +129,4 @@ node <reporters-dir>/tapflow-report-adapter.js --report test-results/mobile/repo
 | Adapter posts nothing to the dashboard | Dashboard not running, or wrong `--dashboard-url`/port — the adapter never fails the run over this, so check its own console line, not the dashboard. |
 | Mobile tab doesn't appear in the dashboard | `progress-server.js` doesn't yet support per-category `ext` (see Phase 4, step 2) — update/reinstall `e2e-dashboard` first. |
 | Two teammates recording flows disagree on selectors | tapflow resolves id → label → partial-label; prefer `id` selectors when available, since labels can be ambiguous across similar-looking elements. |
+| A native flow fails intermittently on replay, always at a permission/onboarding step | OS-level permission grants often persist across `clearState` (which only resets app data), so a dialog recorded once may not reliably reappear — a real limitation of tapflow's deterministic replay model for native apps, not something this skill can paper over. |

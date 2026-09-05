@@ -1,5 +1,7 @@
 # playwright-skills
 
+![playwright-skills social preview](.github/social-preview.png)
+
 <img width="960" height="540" alt="E2E-Dashboard-demo-optimized" src="https://github.com/user-attachments/assets/56603d83-e9e8-4d9d-a470-bd98d539ea6c" />
 
 Two Playwright E2E skills for AI coding agents, shippable to **Claude Code**, **Codex CLI**, and **Cursor**.

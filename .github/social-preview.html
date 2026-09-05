@@ -57,16 +57,18 @@
   .tag{margin-top:26px;font-size:30px;font-weight:400;color:#cdd6d2;letter-spacing:-.01em;max-width:880px}
 
   /* skill chips */
-  .chips{display:flex;gap:16px;margin-top:34px}
+  .chips{display:flex;gap:14px;margin-top:34px}
   .chip{
     display:flex;align-items:center;gap:12px;
     background:var(--graphite);border:1px solid var(--line);border-radius:14px;
-    padding:16px 22px;
+    padding:14px 20px;
   }
-  .chip b{font-size:22px;font-weight:600;letter-spacing:-.01em}
-  .chip span{font-size:16px;color:var(--muted)}
-  .chip .sq{width:10px;height:24px;border-radius:3px;background:var(--accent)}
+  .chip b{font-size:20px;font-weight:600;letter-spacing:-.01em}
+  .chip span{font-size:15px;color:var(--muted)}
+  .chip .sq{width:10px;height:22px;border-radius:3px;background:var(--accent)}
   .chip .sq.alt{background:var(--accent-dim)}
+  .chip .sq.new{background:var(--accent);box-shadow:0 0 10px rgba(52,211,153,.7)}
+  .chip .badge{font-size:11px;letter-spacing:.1em;color:var(--ink);background:var(--accent);border-radius:5px;padding:2px 6px;margin-left:8px;font-weight:700;vertical-align:middle}
 
   /* bottom install line */
   .bottom{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:24px}
@@ -80,20 +82,22 @@
   <div class="spot"></div>
   <div class="frame">
     <div class="top">
-      <div class="kicker"><span class="dot"></span> Playwright · E2E · AI agents</div>
+      <div class="kicker"><span class="dot"></span> Playwright · E2E · Real devices · AI agents</div>
       <div class="tools">
         <div class="tool">Claude Code</div>
         <div class="tool">Codex</div>
         <div class="tool">Cursor</div>
+        <div class="tool">tapflow</div>
       </div>
     </div>
 
     <div class="lead">
       <h1>playwright<span class="accent">·</span>skills</h1>
-      <p class="tag">Two Playwright E2E skills for AI coding agents — install to any tool.</p>
+      <p class="tag">Three Playwright E2E skills for AI coding agents — install to any tool.</p>
       <div class="chips">
         <div class="chip"><span class="sq"></span><div><b>playwright-setup</b><br><span>Generate a full E2E suite from scratch</span></div></div>
         <div class="chip"><span class="sq alt"></span><div><b>e2e-dashboard</b><br><span>Real-time test dashboard, live SSE</span></div></div>
+        <div class="chip"><span class="sq new"></span><div><b>mobile-app-testing<span class="badge">NEW</span></b><br><span>Real-device flows via tapflow, iOS &amp; Android</span></div></div>
       </div>
     </div>
 
